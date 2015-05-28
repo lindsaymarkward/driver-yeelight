@@ -1,0 +1,14 @@
+{
+  "id": "lindsaymarkward.sphere-yeelight",
+  "name": "Yeelight Sunflower Driver",
+  "version": "0.1.0",
+  "description": "Control of Yeelight Sunflower bulbs using TCP",
+  "main": "sphere-yeelight",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "Lindsay Ward <lindsay.ward@jcu.edu.au>",
+  "license": "MIT",
+  "topics": {},
+  "maxMemory": 10
+}
