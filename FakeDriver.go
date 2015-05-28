@@ -8,10 +8,10 @@ import (
 	"log"
 	"time"
 
+	"github.com/lindsaymarkward/go-yeelight"
 	"github.com/ninjasphere/go-ninja/api"
 	"github.com/ninjasphere/go-ninja/events"
 	"github.com/ninjasphere/go-ninja/support"
-	"github.com/lindsaymarkward/go-yeelight"
 )
 
 var info = ninja.LoadModuleInfo("./package.json")
@@ -25,35 +25,50 @@ var info = ninja.LoadModuleInfo("./package.json")
 	License:     "MIT",
 }*/
 
-type FakeDriver struct {
+type YeelightDriver struct {
 	support.DriverSupport
-	config *FakeDriverConfig
+	config *YeelightDriverConfig
 }
 
-type FakeDriverConfig struct {
-	Initialised          bool
-	NumberOfLights       int
+type YeelightDriverConfig struct {
+	Hub         yeelight.Hub
+	Initialised bool
 }
 
-func defaultConfig() *FakeDriverConfig {
-	return &FakeDriverConfig{
-		Initialised:          true,
-		NumberOfLights:       2,
+// defaultConfig sets a default configuration for the YeelightDriverConfig with no lights
+func defaultConfig() *YeelightDriverConfig {
+	return &YeelightDriverConfig{
+		Initialised: true,
+		Hub: yeelight.Hub{
+			IP:       yeelight.IP,
+			LightIDs: make([]string, 0),
+		},
 	}
 }
 
-func NewFakeDriver() (*FakeDriver, error) {
+// setConfig creates a configuration struct for the YeelightDriverConfig with the given ip and light IDs
+func setConfig(ip string, lightIDs []string) *YeelightDriverConfig {
+	return &YeelightDriverConfig{
+		Initialised: true,
+		Hub: yeelight.Hub{
+			IP:       ip,
+			LightIDs: lightIDs,
+		},
+	}
+}
 
-	driver := &FakeDriver{}
+func NewYeelightDriver() (*YeelightDriver, error) {
+
+	driver := &YeelightDriver{}
 
 	err := driver.Init(info)
 	if err != nil {
-		log.Fatalf("Failed to initialize fake driver: %s", err)
+		log.Fatalf("Failed to initialize Yeelight driver: %s", err)
 	}
 
 	err = driver.Export(driver)
 	if err != nil {
-		log.Fatalf("Failed to export fake driver: %s", err)
+		log.Fatalf("Failed to export Yeelight driver: %s", err)
 	}
 
 	userAgent := driver.Conn.GetServiceClient("$device/:deviceId/channel/user-agent")
@@ -62,7 +77,7 @@ func NewFakeDriver() (*FakeDriver, error) {
 	return driver, nil
 }
 
-func (d *FakeDriver) OnPairingRequest(pairingRequest *events.PairingRequest, values map[string]string) bool {
+func (d *YeelightDriver) OnPairingRequest(pairingRequest *events.PairingRequest, values map[string]string) bool {
 	log.Printf("Pairing request received from %s for %d seconds", values["deviceId"], pairingRequest.Duration)
 	d.SendEvent("pairing-started", &events.PairingStarted{
 		Duration: pairingRequest.Duration,
@@ -76,20 +91,38 @@ func (d *FakeDriver) OnPairingRequest(pairingRequest *events.PairingRequest, val
 	return true
 }
 
-func (d *FakeDriver) Start(config *FakeDriverConfig) error {
+// Start (I believe) runs when the driver is started - called by the Ninja system (not the driver itself)
+// gets the hub and light details, sets the configuration
+func (d *YeelightDriver) Start(config *YeelightDriverConfig) error {
 	log.Printf("Yeelight Driver Starting with config %v", config)
+
+	var lightIDs []string
 
 	d.config = config
 	if !d.config.Initialised {
-		d.config = defaultConfig()
+		// search for hub and get IP address
+		ip, err := yeelight.DiscoverHub()
+		if err != nil {
+			log.Panicf("ERROR discovering Yeelight hub: %v", err)
+			d.config = defaultConfig()
+		} else {
+			// found hub, set config details
+			lights, _ := yeelight.GetLights()
+			log.Printf("\nLights:\n%v\n", lights)
+			// get just light IDs from lights array
+			lightIDs = make([]string, len(lights))
+			for i := 0; i < len(lights); i++ {
+				lightIDs[i] = lights[i].ID
+			}
+			d.config = setConfig(ip, lightIDs)
+			log.Printf("Found these (%d) lights: %v at IP %v", len(lights), lightIDs, ip)
+		}
 	}
 
-	lights, _ := yeelight.GetLights()
-	fmt.Println(lights)
-
-	for i := 0; i < d.config.NumberOfLights; i++ {
-		log.Print("Creating new Yeelight!!!!!!!!!!!!       !!!!!!!")
-		device := NewFakeLight(d, i)
+	for i := 0; i < len(d.config.Hub.LightIDs); i++ {
+		//	for i := 0; i < 0; i++ {
+		log.Printf("Creating new Yeelight, %v", lightIDs[i])
+		device := NewYeelight(d, lightIDs[i])
 
 		err := d.Conn.ExportDevice(device)
 		if err != nil {
@@ -116,20 +149,16 @@ func (d *FakeDriver) Start(config *FakeDriverConfig) error {
 			log.Fatalf("Failed to export fake light temperature channel %d: %s", i, err)
 		}
 
-
 	}
 
-	// Bump the config prop by one... to test it updates
-	config.NumberOfLights++
-
-	// test!!
-	response, _ := yeelight.SendCommand("C 50F5,255,255,255,100,0\r\n", yeelight.IP)
-	fmt.Println(response)
+	//	// test!!
+	//	response, _ := yeelight.SendCommand("C 50F5,255,255,255,100,0\r\n", yeelight.IP)
+	//	fmt.Println(response)
 
 	return d.SendEvent("config", config)
 }
 
-func (d *FakeDriver) Stop() error {
+func (d *YeelightDriver) Stop() error {
 	return fmt.Errorf("This driver does not support being stopped. YOU HAVE NO POWER HERE.")
 }
 
@@ -142,7 +171,7 @@ type Out struct {
 	Name string
 }
 
-func (d *FakeDriver) Blarg(in *In) (*Out, error) {
+func (d *YeelightDriver) Blarg(in *In) (*Out, error) {
 	log.Printf("GOT INCOMING! %s", in.Name)
 	return &Out{
 		Name: in.Name,
