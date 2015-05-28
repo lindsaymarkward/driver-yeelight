@@ -6,10 +6,11 @@ import (
 	"regexp"
 	"strings"
 
+	"code.google.com/p/sadbox/color"
+	"github.com/lindsaymarkward/go-yeelight"
 	"github.com/ninjasphere/go-ninja/api"
 	"github.com/ninjasphere/go-ninja/channels"
 	"github.com/ninjasphere/go-ninja/model"
-	"github.com/lindsaymarkward/go-yeelight"
 )
 
 type Yeelight struct {
@@ -31,7 +32,7 @@ func NewYeelight(driver ninja.Driver, id string) *Yeelight {
 			// should I store the light ID here or outside info??
 			// Is NaturalID meant to be something in particular??
 			NaturalID:     fmt.Sprintf("%s", id), // was: fmt.Sprintf("light%d", id),
-			NaturalIDType: "yeelight", // I have no idea about this. was "fake"
+			NaturalIDType: "yeelight",            // I have no idea about this. was "fake"
 			Name:          &name,
 			Signatures: &map[string]string{
 				"ninja:manufacturer": "Qingdao Yeelink",
@@ -71,7 +72,7 @@ func (l *Yeelight) GetDriver() ninja.Driver {
 	return l.driver
 }
 
-// is this where the action happens??
+// these functions are where the action happens - send commands to the Yeelight bulbs
 
 func (l *Yeelight) SetOnOff(state bool) error {
 	log.Printf("Turning %t", state)
@@ -81,17 +82,34 @@ func (l *Yeelight) SetOnOff(state bool) error {
 }
 
 func (l *Yeelight) ToggleOnOff() error {
-	log.Println("Toggling")
+	log.Println("Toggling!")
+	yeelight.ToggleOnOff(l.info.NaturalID)
 	return nil
 }
+
+// TODO: update app/model status when these change... I think??
 
 func (l *Yeelight) SetColor(state *channels.ColorState) error {
-	log.Printf("setting color state to %v", state)
+	log.Printf("Setting color state to %#v", state)
+	log.Printf("Mode: %v", state.Mode)
+	if state.Mode == "temperature" {
+		// TODO: figure out how to do temperature -> RGB conversion
+	} else {
+		// state must be "hue"
+//		log.Printf("Hue: %v, Sat: %v", *state.Hue, *state.Saturation)
+		r, g, b := color.HSVToRGB(*state.Hue, *state.Saturation, 1)
+//		log.Printf("RGB = %v, %v, %v\n", r, g, b)
+		// ?? Do we need brightness here? Does app set it with color picker?
+		yeelight.SetColor(l.info.NaturalID, r, g, b)
+	}
+
 	return nil
 }
 
+// SetBrightness takes a brightness value (0-1) and calls yeelight.SetBrightness to... set the brightness
 func (l *Yeelight) SetBrightness(state float64) error {
-	log.Printf("setting brightness to %f", state)
+	log.Printf("Setting brightness to %f", state)
+	yeelight.SetBrightness(l.info.NaturalID, state)
 	return nil
 }
 
