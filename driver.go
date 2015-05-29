@@ -143,17 +143,7 @@ func (d *YeelightDriver) Start(config *YeelightDriverConfig) error {
 		if err != nil {
 			log.Fatalf("Failed to export fake color channel %d: %s", i, err)
 		}
-		// can I remove this?
-		err = d.Conn.ExportChannel(device, device.temperatureChannel, "temperature")
-		if err != nil {
-			log.Fatalf("Failed to export fake light temperature channel %d: %s", i, err)
-		}
-
 	}
-
-	//	// test!!
-	//	response, _ := yeelight.SendCommand("C 50F5,255,255,255,100,0\r\n", yeelight.IP)
-	//	fmt.Println(response)
 
 	return d.SendEvent("config", config)
 }

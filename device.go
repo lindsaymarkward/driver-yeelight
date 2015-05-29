@@ -6,7 +6,6 @@ import (
 	"regexp"
 	"strings"
 
-	"code.google.com/p/sadbox/color"
 	"github.com/lindsaymarkward/go-yeelight"
 	"github.com/ninjasphere/go-ninja/api"
 	"github.com/ninjasphere/go-ninja/channels"
@@ -14,13 +13,12 @@ import (
 )
 
 type Yeelight struct {
-	driver             ninja.Driver
-	info               *model.Device
-	sendEvent          func(event string, payload interface{}) error
-	onOffChannel       *channels.OnOffChannel
-	brightnessChannel  *channels.BrightnessChannel
-	colorChannel       *channels.ColorChannel
-	temperatureChannel *channels.TemperatureChannel
+	driver            ninja.Driver
+	info              *model.Device
+	sendEvent         func(event string, payload interface{}) error
+	onOffChannel      *channels.OnOffChannel
+	brightnessChannel *channels.BrightnessChannel
+	colorChannel      *channels.ColorChannel
 }
 
 func NewYeelight(driver ninja.Driver, id string) *Yeelight {
@@ -32,7 +30,7 @@ func NewYeelight(driver ninja.Driver, id string) *Yeelight {
 			// should I store the light ID here or outside info??
 			// Is NaturalID meant to be something in particular??
 			NaturalID:     fmt.Sprintf("%s", id), // was: fmt.Sprintf("light%d", id),
-			NaturalIDType: "yeelight",            // I have no idea about this. was "fake"
+			NaturalIDType: "yeelight", // I have no idea about this. was "fake"
 			Name:          &name,
 			Signatures: &map[string]string{
 				"ninja:manufacturer": "Qingdao Yeelink",
@@ -43,11 +41,10 @@ func NewYeelight(driver ninja.Driver, id string) *Yeelight {
 		},
 	}
 
-	// what channels?? remove temp
+	// what channels
 	light.onOffChannel = channels.NewOnOffChannel(light)
 	light.brightnessChannel = channels.NewBrightnessChannel(light)
 	light.colorChannel = channels.NewColorChannel(light)
-	light.temperatureChannel = channels.NewTemperatureChannel(light) // remove??
 
 	// I'm pretty sure this is just testing events.
 	// Could potentially use heartbeat here if it's useful??
@@ -73,6 +70,7 @@ func (l *Yeelight) GetDriver() ninja.Driver {
 }
 
 // these functions are where the action happens - send commands to the Yeelight bulbs
+// TODO: update app/model status when these change... I think??
 
 func (l *Yeelight) SetOnOff(state bool) error {
 	log.Printf("Turning %t", state)
@@ -87,21 +85,21 @@ func (l *Yeelight) ToggleOnOff() error {
 	return nil
 }
 
-// TODO: update app/model status when these change... I think??
-
 func (l *Yeelight) SetColor(state *channels.ColorState) error {
-	log.Printf("Setting color state to %#v", state)
-	log.Printf("Mode: %v", state.Mode)
+//	log.Printf("Setting color state to %#v", state)
+	var r, g, b uint8
 	if state.Mode == "temperature" {
-		// TODO: figure out how to do temperature -> RGB conversion
+		// temperature is in the range [2000, 6500]
+//		log.Printf("Temp: %v", *state.Temperature)
+		r, g, b = TemperatureToRGB(*state.Temperature)
 	} else {
 		// state must be "hue"
-//		log.Printf("Hue: %v, Sat: %v", *state.Hue, *state.Saturation)
-		r, g, b := color.HSVToRGB(*state.Hue, *state.Saturation, 1)
-//		log.Printf("RGB = %v, %v, %v\n", r, g, b)
-		// ?? Do we need brightness here? Does app set it with color picker?
-		yeelight.SetColor(l.info.NaturalID, r, g, b)
+		//		log.Printf("Hue: %v, Sat: %v", *state.Hue, *state.Saturation)
+		r, g, b = HSVToRGB(*state.Hue, *state.Saturation, 1)
 	}
+	log.Printf("Setting colour to RGB = %v, %v, %v\n", r, g, b)
+	// ?? Do we need brightness here? Does app set it with color picker? I don't think so
+	yeelight.SetColor(l.info.NaturalID, r, g, b)
 
 	return nil
 }
@@ -121,7 +119,7 @@ var reg, _ = regexp.Compile("[^a-z0-9]")
 
 // Exported by service/device schema
 func (l *Yeelight) SetName(name *string) (*string, error) {
-	log.Printf("Setting device name to %s", *name)
+	log.Printf("\n\n\nSetting device name to %s\n\n\n", *name)
 
 	safe := reg.ReplaceAllString(strings.ToLower(*name), "")
 	if len(safe) > 5 {

@@ -10,7 +10,7 @@ EOF
 # fake-phone??
 topic()
 {
-    echo "\$device/fake-phone/channel/user-agent/event/pairing-requested"
+    echo "\$device/phone/channel/user-agent/event/pairing-requested"
 }
 
 transport()
