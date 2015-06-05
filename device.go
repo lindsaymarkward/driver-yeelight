@@ -10,9 +10,12 @@ import (
 	"github.com/ninjasphere/go-ninja/api"
 	"github.com/ninjasphere/go-ninja/channels"
 	"github.com/ninjasphere/go-ninja/model"
+	"github.com/ninjasphere/go-ninja/devices"
 )
 
 type Yeelight struct {
+	devices.LightDevice
+	ip string
 	driver            ninja.Driver
 	info              *model.Device
 	sendEvent         func(event string, payload interface{}) error
@@ -21,16 +24,18 @@ type Yeelight struct {
 	colorChannel      *channels.ColorChannel
 }
 
-func NewYeelight(driver ninja.Driver, id string) *Yeelight {
-	name := fmt.Sprintf("Light %v", id)
+func NewYeelight(driver *YeelightDriver, id string) *Yeelight {
+	name := fmt.Sprintf("Lt %v", id)
+	driver.config.Names[id] = name
 
 	light := &Yeelight{
+		ip: driver.config.Hub.IP,  // "192.168.1.59",
 		driver: driver,
 		info: &model.Device{
 			// should I store the light ID here or outside info??
 			// Is NaturalID meant to be something in particular??
 			NaturalID:     fmt.Sprintf("%s", id), // was: fmt.Sprintf("light%d", id),
-			NaturalIDType: "yeelight", // I have no idea about this. was "fake"
+			NaturalIDType: "light", // I have no idea about this.?? was "fake"
 			Name:          &name,
 			Signatures: &map[string]string{
 				"ninja:manufacturer": "Qingdao Yeelink",
@@ -45,18 +50,6 @@ func NewYeelight(driver ninja.Driver, id string) *Yeelight {
 	light.onOffChannel = channels.NewOnOffChannel(light)
 	light.brightnessChannel = channels.NewBrightnessChannel(light)
 	light.colorChannel = channels.NewColorChannel(light)
-
-	// I'm pretty sure this is just testing events.
-	// Could potentially use heartbeat here if it's useful??
-	//	go func() {
-	//
-	//		var temp float64
-	//		for {
-	//			time.Sleep(5 * time.Second)
-	//			temp += 0.5
-	//			light.temperatureChannel.SendState(temp)
-	//		}
-	//	}()
 
 	return light
 }
@@ -75,13 +68,13 @@ func (l *Yeelight) GetDriver() ninja.Driver {
 func (l *Yeelight) SetOnOff(state bool) error {
 	log.Printf("Turning %t", state)
 	// turn light on/off (yeelight.SetOnOff handles state choice)
-	yeelight.SetOnOff(l.info.NaturalID, state)
+	yeelight.SetOnOff(l.info.NaturalID, state, l.ip)
 	return nil
 }
 
 func (l *Yeelight) ToggleOnOff() error {
 	log.Println("Toggling!")
-	yeelight.ToggleOnOff(l.info.NaturalID)
+	yeelight.ToggleOnOff(l.info.NaturalID, l.ip)
 	return nil
 }
 
@@ -99,7 +92,7 @@ func (l *Yeelight) SetColor(state *channels.ColorState) error {
 	}
 	log.Printf("Setting colour to RGB = %v, %v, %v\n", r, g, b)
 	// ?? Do we need brightness here? Does app set it with color picker? I don't think so
-	yeelight.SetColor(l.info.NaturalID, r, g, b)
+	yeelight.SetColor(l.info.NaturalID, r, g, b, l.ip)
 
 	return nil
 }
@@ -107,7 +100,7 @@ func (l *Yeelight) SetColor(state *channels.ColorState) error {
 // SetBrightness takes a brightness value (0-1) and calls yeelight.SetBrightness to... set the brightness
 func (l *Yeelight) SetBrightness(state float64) error {
 	log.Printf("Setting brightness to %f", state)
-	yeelight.SetBrightness(l.info.NaturalID, state)
+	yeelight.SetBrightness(l.info.NaturalID, state, l.ip)
 	return nil
 }
 

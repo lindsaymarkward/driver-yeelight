@@ -52,8 +52,8 @@ func clamp(x, min, max float64) uint8 {
 }
 
 
-// from https://godoc.org/code.google.com/p/sadbox/color
 // HSVToRGB converts an HSV triple to a RGB triple.
+// from https://godoc.org/code.google.com/p/sadbox/color
 // Ported from http://goo.gl/Vg1h9
 func HSVToRGB(h, s, v float64) (r, g, b uint8) {
 	var fR, fG, fB float64
@@ -80,7 +80,7 @@ func HSVToRGB(h, s, v float64) (r, g, b uint8) {
 	return
 }
 
-// floatToUint8 converts a float64 to uint8.
+// float64ToUint8 converts a float64 to uint8.
 // See: http://code.google.com/p/go/issues/detail?id=3423
 func float64ToUint8(x float64) uint8 {
 	if x < 0 {
