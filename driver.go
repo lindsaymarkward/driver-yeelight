@@ -133,11 +133,13 @@ func (d *YeelightDriver) Start(config *YeelightDriverConfig) error {
 		log.Printf("Creating new Yeelight, %v", lightIDs[i])
 		device := NewYeelight(d, lightIDs[i])
 
-		err := d.Conn.ExportDevice(device)
-		if err != nil {
-			log.Fatalf("Failed to export Yeelight device %d: %s", i, err)
-		}
+		// createLightDevice does this now
+//		err := d.Conn.ExportDevice(device)
+//		if err != nil {
+//			log.Fatalf("Failed to export Yeelight device %d: %s", i, err)
+//		}
 
+//		err = d.Conn.ExportChannel(device, device.SetBatch())
 		err = d.Conn.ExportChannel(device, device.onOffChannel, "on-off")
 		if err != nil {
 			log.Fatalf("Failed to export Yeelight on off channel %d: %s", i, err)

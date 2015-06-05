@@ -9,49 +9,72 @@ import (
 	"github.com/lindsaymarkward/go-yeelight"
 	"github.com/ninjasphere/go-ninja/api"
 	"github.com/ninjasphere/go-ninja/channels"
-	"github.com/ninjasphere/go-ninja/model"
 	"github.com/ninjasphere/go-ninja/devices"
+	"github.com/ninjasphere/go-ninja/model"
 )
 
 type Yeelight struct {
 	devices.LightDevice
-	ip string
+	ip                string
 	driver            ninja.Driver
 	info              *model.Device
+	device            *devices.LightDevice
 	sendEvent         func(event string, payload interface{}) error
 	onOffChannel      *channels.OnOffChannel
 	brightnessChannel *channels.BrightnessChannel
 	colorChannel      *channels.ColorChannel
+	transitionChannel *channels.TransitionChannel
+	identifyChannel   *channels.IdentifyChannel
 }
 
 func NewYeelight(driver *YeelightDriver, id string) *Yeelight {
+	//	var test Yeelight
 	name := fmt.Sprintf("Lt %v", id)
 	driver.config.Names[id] = name
+	infoModel := &model.Device{
+		NaturalID:     fmt.Sprintf("%s", id),
+		NaturalIDType: "light",
+		Name:          &name,
+		Signatures: &map[string]string{
+			"ninja:manufacturer": "Qingdao Yeelink",
+			"ninja:productName":  "Yeelight",
+			"ninja:productType":  "Light",
+			"ninja:thingType":    "light",
+		},
+	}
+
+	lightDevice, err := devices.CreateLightDevice(driver, infoModel, driver.Conn)
+	if err != nil {
+		log.Printf("Error creating light device")
+	}
 
 	light := &Yeelight{
-		ip: driver.config.Hub.IP,  // "192.168.1.59",
+		ip:     driver.config.Hub.IP, // "192.168.1.59",
 		driver: driver,
-		info: &model.Device{
-			// should I store the light ID here or outside info??
-			// Is NaturalID meant to be something in particular??
-			NaturalID:     fmt.Sprintf("%s", id), // was: fmt.Sprintf("light%d", id),
-			NaturalIDType: "light", // I have no idea about this.?? was "fake"
-			Name:          &name,
-			Signatures: &map[string]string{
-				"ninja:manufacturer": "Qingdao Yeelink",
-				"ninja:productName":  "Yeelight",
-				"ninja:productType":  "Light",
-				"ninja:thingType":    "light",
-			},
-		},
+		device: lightDevice,
+		info:   infoModel,
 	}
 
 	// what channels
 	light.onOffChannel = channels.NewOnOffChannel(light)
 	light.brightnessChannel = channels.NewBrightnessChannel(light)
 	light.colorChannel = channels.NewColorChannel(light)
+	// these 2 are only here to test/fix the crash on setBatch
+	light.transitionChannel = channels.NewTransitionChannel(light)
+	light.identifyChannel = channels.NewIdentifyChannel(light)
+
+	// ?? maybe?
+//	light.ApplyLightState = func(state *devices.LightDeviceState) error {
+//		fmt.Printf("\n\nWOW!! %v\n\n", state)
+//		return nil
+//	}
 
 	return light
+}
+
+func (l *Yeelight) ApplyLightState(state *devices.LightDeviceState) error {
+	fmt.Printf("\n\nnow it's WOW!! %v\n\n", state)
+	return nil
 }
 
 func (l *Yeelight) GetDeviceInfo() *model.Device {
@@ -64,6 +87,11 @@ func (l *Yeelight) GetDriver() ninja.Driver {
 
 // these functions are where the action happens - send commands to the Yeelight bulbs
 // TODO: update app/model status when these change... I think??
+
+func (l *Yeelight) SetTransition(state int) error {
+	fmt.Printf("Really?\n")
+	return nil
+}
 
 func (l *Yeelight) SetOnOff(state bool) error {
 	log.Printf("Turning %t", state)
@@ -79,11 +107,11 @@ func (l *Yeelight) ToggleOnOff() error {
 }
 
 func (l *Yeelight) SetColor(state *channels.ColorState) error {
-//	log.Printf("Setting color state to %#v", state)
+	//	log.Printf("Setting color state to %#v", state)
 	var r, g, b uint8
 	if state.Mode == "temperature" {
 		// temperature is in the range [2000, 6500]
-//		log.Printf("Temp: %v", *state.Temperature)
+		//		log.Printf("Temp: %v", *state.Temperature)
 		r, g, b = TemperatureToRGB(*state.Temperature)
 	} else {
 		// state must be "hue"
