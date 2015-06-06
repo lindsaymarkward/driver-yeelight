@@ -16,8 +16,10 @@ import (
 type Yeelight struct {
 	devices.LightDevice
 	ip                string
+	state             bool
 	driver            ninja.Driver
 	info              *model.Device
+	thing             *model.Thing
 	device            *devices.LightDevice
 	sendEvent         func(event string, payload interface{}) error
 	onOffChannel      *channels.OnOffChannel
@@ -28,9 +30,15 @@ type Yeelight struct {
 }
 
 func NewYeelight(driver *YeelightDriver, id string) *Yeelight {
-	//	var test Yeelight
-	name := fmt.Sprintf("Lt %v", id)
-	driver.config.Names[id] = name
+	// only give programmed name if it doesn't already have one
+	var name string
+	if driver.config.Names[id] == "" {
+		name = fmt.Sprintf("Lt %v", id)
+		driver.config.Names[id] = name
+	} else {
+		name = driver.config.Names[id]
+	}
+
 	infoModel := &model.Device{
 		NaturalID:     fmt.Sprintf("%s", id),
 		NaturalIDType: "light",
@@ -53,6 +61,9 @@ func NewYeelight(driver *YeelightDriver, id string) *Yeelight {
 		driver: driver,
 		device: lightDevice,
 		info:   infoModel,
+		thing: &model.Thing{
+			Name: name,
+		},
 	}
 
 	// what channels
@@ -63,11 +74,28 @@ func NewYeelight(driver *YeelightDriver, id string) *Yeelight {
 	light.transitionChannel = channels.NewTransitionChannel(light)
 	light.identifyChannel = channels.NewIdentifyChannel(light)
 
-	// ?? maybe?
-//	light.ApplyLightState = func(state *devices.LightDeviceState) error {
-//		fmt.Printf("\n\nWOW!! %v\n\n", state)
-//		return nil
-//	}
+	// ApplyLightState runs when airwheeling...
+	light.device.ApplyLightState = func(state *devices.LightDeviceState) error {
+		// for some reason, nothing prints in here...
+		//		fmt.Printf("\n\nWOW!! %v\n\n", state)
+//		log.Printf("Batch: %v", state)
+		if state.OnOff != nil {
+			err := light.SetOnOff(*state.OnOff)
+			if err != nil {
+				return err
+			}
+		}
+		if state.Brightness != nil {
+			light.SetBrightness(*state.Brightness)
+//			log.Printf("\nBrightness: %v\n\n", *state.Brightness)
+		}
+		// TODO: Colour state changing
+		if state.Color != nil {
+			light.SetColor(state.Color)
+		}
+
+		return nil
+	}
 
 	return light
 }
@@ -97,12 +125,26 @@ func (l *Yeelight) SetOnOff(state bool) error {
 	log.Printf("Turning %t", state)
 	// turn light on/off (yeelight.SetOnOff handles state choice)
 	yeelight.SetOnOff(l.info.NaturalID, state, l.ip)
+	l.state = state
+	l.onOffChannel.SendState(state)
+	if l.state {
+		l.brightnessChannel.SendState(1)
+	} else {
+		l.brightnessChannel.SendState(0)
+	}
 	return nil
 }
 
 func (l *Yeelight) ToggleOnOff() error {
-	log.Println("Toggling!")
+	log.Println("\n\nToggling!\n")
 	yeelight.ToggleOnOff(l.info.NaturalID, l.ip)
+	l.state = !l.state
+	l.onOffChannel.SendState(l.state)
+	if l.state {
+		l.brightnessChannel.SendState(1)
+	} else {
+		l.brightnessChannel.SendState(0)
+	}
 	return nil
 }
 
@@ -119,16 +161,24 @@ func (l *Yeelight) SetColor(state *channels.ColorState) error {
 		r, g, b = HSVToRGB(*state.Hue, *state.Saturation, 1)
 	}
 	log.Printf("Setting colour to RGB = %v, %v, %v\n", r, g, b)
-	// ?? Do we need brightness here? Does app set it with color picker? I don't think so
+
 	yeelight.SetColor(l.info.NaturalID, r, g, b, l.ip)
+	l.colorChannel.SendState(state)
 
 	return nil
 }
 
 // SetBrightness takes a brightness value (0-1) and calls yeelight.SetBrightness to... set the brightness
-func (l *Yeelight) SetBrightness(state float64) error {
-	log.Printf("Setting brightness to %f", state)
-	yeelight.SetBrightness(l.info.NaturalID, state, l.ip)
+func (l *Yeelight) SetBrightness(value float64) error {
+	log.Printf("Setting brightness to %f", value)
+	yeelight.SetBrightness(l.info.NaturalID, value, l.ip)
+	if value == 0 {
+		l.state = false
+	} else {
+		l.state = true
+	}
+	l.onOffChannel.SendState(l.state)
+	l.brightnessChannel.SendState(value)
 	return nil
 }
 

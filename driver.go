@@ -17,18 +17,9 @@ import (
 
 var info = ninja.LoadModuleInfo("./package.json")
 
-/*model.Module{
-	ID:          "com.ninjablocks.fakedriver",
-	Name:        "Fake Driver",
-	Version:     "1.0.2",
-	Description: "Just used to test go-ninja",
-	Author:      "Elliot Shepherd <elliot@ninjablocks.com>",
-	License:     "MIT",
-}*/
-
 type YeelightDriver struct {
 	support.DriverSupport
-	config *YeelightDriverConfig
+	config  *YeelightDriverConfig
 	devices map[string]*Yeelight
 }
 
@@ -103,9 +94,11 @@ func (d *YeelightDriver) Start(config *YeelightDriverConfig) error {
 	log.Printf("Yeelight Driver Starting with config %v", config)
 
 	var lightIDs []string
+	// make map so we can add lights to it
+	d.devices = make(map[string]*Yeelight)
 
-//	d.config = config
-//	if !d.config.Initialised {
+	d.config = config
+	if !d.config.Initialised {
 		// search for hub and get IP address
 		ip, err := yeelight.DiscoverHub()
 		if err != nil {
@@ -123,24 +116,24 @@ func (d *YeelightDriver) Start(config *YeelightDriverConfig) error {
 			d.config = setConfig(ip, lightIDs)
 			log.Printf("Found these (%d) lights: %v at IP %v", len(lights), lightIDs, ip)
 		}
-//	} else {
-//		fmt.Printf("\n\n\nAHA\n\n\n")
-//		fmt.Println(d.config.Hub.LightIDs)
-//	}
+	} else {
+		fmt.Println(d.config.Hub.LightIDs)
+	}
 
 	for i := 0; i < len(d.config.Hub.LightIDs); i++ {
 		//	for i := 0; i < 0; i++ {
-		log.Printf("Creating new Yeelight, %v", lightIDs[i])
-		device := NewYeelight(d, lightIDs[i])
+		log.Printf("Creating new Yeelight, %v", d.config.Hub.LightIDs[i])
+		device := NewYeelight(d, d.config.Hub.LightIDs[i])
+		d.devices[d.config.Hub.LightIDs[i]] = device
 
 		// createLightDevice does this now
-//		err := d.Conn.ExportDevice(device)
-//		if err != nil {
-//			log.Fatalf("Failed to export Yeelight device %d: %s", i, err)
-//		}
+		//		err := d.Conn.ExportDevice(device)
+		//		if err != nil {
+		//			log.Fatalf("Failed to export Yeelight device %d: %s", i, err)
+		//		}
 
-//		err = d.Conn.ExportChannel(device, device.SetBatch())
-		err = d.Conn.ExportChannel(device, device.onOffChannel, "on-off")
+		//		err = d.Conn.ExportChannel(device, device.SetBatch())
+		err := d.Conn.ExportChannel(device, device.onOffChannel, "on-off")
 		if err != nil {
 			log.Fatalf("Failed to export Yeelight on off channel %d: %s", i, err)
 		}
@@ -172,28 +165,38 @@ func (d *YeelightDriver) Stop() error {
 
 // Rename takes a map of id->name and changes the display names for each light
 func (d *YeelightDriver) Rename(names map[string]string) error {
-//	fmt.Println("Rename: ", names)
 	d.config.Names = names
+	// as well as the driver config, we also need to set the device names
+	for id, newName := range names {
+		//		fmt.Printf("\nid %v, name %v\n", id, newName)
+		//		fmt.Println(d.DriverSupport.GetModuleInfo().)
+		//		d.devices[id].driver.GetModuleInfo().Name = newName
+		d.devices[id].info.Name = &newName
+		d.devices[id].thing.Name = newName
+		fmt.Printf("\nThing name %v\n", d.devices[id].thing.Name)
+		//		d.devices[id].sendEvent("renamed", &newName)
+
+	}
+
 	// save the new configuration
-//	d.devices
 	return d.SendEvent("config", d.config)
 }
 
 // What are these things? Age: 30?
 
-type In struct {
-	Name string
-}
-
-type Out struct {
-	Age  int
-	Name string
-}
-
-func (d *YeelightDriver) Blarg(in *In) (*Out, error) {
-	log.Printf("GOT INCOMING! %s", in.Name)
-	return &Out{
-		Name: in.Name,
-		Age:  30,
-	}, nil
-}
+//type In struct {
+//	Name string
+//}
+//
+//type Out struct {
+//	Age  int
+//	Name string
+//}
+//
+//func (d *YeelightDriver) Blarg(in *In) (*Out, error) {
+//	log.Printf("GOT INCOMING! %s", in.Name)
+//	return &Out{
+//		Name: in.Name,
+//		Age:  30,
+//	}, nil
+//}
