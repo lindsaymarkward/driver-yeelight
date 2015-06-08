@@ -29,6 +29,7 @@ type Yeelight struct {
 	identifyChannel   *channels.IdentifyChannel
 }
 
+// NewYeelight creates a light device, given a driver and an id (hex code used by Yeelight hub)
 func NewYeelight(driver *YeelightDriver, id string) *Yeelight {
 	// only give programmed name if it doesn't already have one
 	var name string
@@ -89,20 +90,12 @@ func NewYeelight(driver *YeelightDriver, id string) *Yeelight {
 			light.SetBrightness(*state.Brightness)
 //			log.Printf("\nBrightness: %v\n\n", *state.Brightness)
 		}
-		// TODO: Colour state changing
 		if state.Color != nil {
 			light.SetColor(state.Color)
 		}
-
 		return nil
 	}
-
 	return light
-}
-
-func (l *Yeelight) ApplyLightState(state *devices.LightDeviceState) error {
-	fmt.Printf("\n\nnow it's WOW!! %v\n\n", state)
-	return nil
 }
 
 func (l *Yeelight) GetDeviceInfo() *model.Device {
@@ -114,12 +107,6 @@ func (l *Yeelight) GetDriver() ninja.Driver {
 }
 
 // these functions are where the action happens - send commands to the Yeelight bulbs
-// TODO: update app/model status when these change... I think??
-
-func (l *Yeelight) SetTransition(state int) error {
-	fmt.Printf("Really?\n")
-	return nil
-}
 
 func (l *Yeelight) SetOnOff(state bool) error {
 	log.Printf("Turning %t", state)
@@ -148,6 +135,9 @@ func (l *Yeelight) ToggleOnOff() error {
 	return nil
 }
 
+// SetColor takes a color state struct and sets the colour of the light
+// the color state struct contains the "Mode" of light that has been set,
+// which can either be "hue" or "temperature" for Yeelights
 func (l *Yeelight) SetColor(state *channels.ColorState) error {
 	//	log.Printf("Setting color state to %#v", state)
 	var r, g, b uint8
