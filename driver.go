@@ -1,16 +1,13 @@
 package main
 
-// Ninja Sphere driver for Yeelight Sunflower light bulbs ()
-
+// Ninja Sphere driver for Yeelight Sunflower light bulbs
 
 import (
 	"fmt"
 	"log"
-	"time"
 
 	"github.com/lindsaymarkward/go-yeelight"
 	"github.com/ninjasphere/go-ninja/api"
-	"github.com/ninjasphere/go-ninja/events"
 	"github.com/ninjasphere/go-ninja/model"
 	"github.com/ninjasphere/go-ninja/support"
 )
@@ -20,43 +17,34 @@ var info = ninja.LoadModuleInfo("./package.json")
 type YeelightDriver struct {
 	support.DriverSupport
 	config  *YeelightDriverConfig
-	devices map[string]*Yeelight
+	devices map[string]*YeelightDevice
 }
 
 type YeelightDriverConfig struct {
-	Hub         yeelight.Hub
+	IP          string
+	LightIDs    []string // needed in addition to map of Names due to being ordered
 	Names       map[string]string
 	Initialised bool
 }
 
 // defaultConfig sets a default configuration for the YeelightDriverConfig with no lights
-func defaultConfig() *YeelightDriverConfig {
+func DefaultConfig() *YeelightDriverConfig {
 	return &YeelightDriverConfig{
 		Initialised: true,
-		Hub: yeelight.Hub{
-			IP:       "",
-			LightIDs: make([]string, 0),
-		},
-		Names: make(map[string]string),
+		LightIDs:    make([]string, 0),
+		IP:          "",
+		Names:       make(map[string]string),
 	}
 }
 
-// setConfig creates a configuration struct for the YeelightDriverConfig with the given IP address and light IDs
-func setConfig(ip string, lightIDs []string) *YeelightDriverConfig {
-	// not passing in names as they're not known/set at this stage
-	return &YeelightDriverConfig{
-		Initialised: true,
-		Hub: yeelight.Hub{
-			IP:       ip,
-			LightIDs: lightIDs,
-		},
-		Names: make(map[string]string),
-	}
-}
-
+// NewYeelightDriver creates a new driver with an empty map of names
+// initialises and exports Ninja stuff
 func NewYeelightDriver() (*YeelightDriver, error) {
 
-	driver := &YeelightDriver{}
+	driver := &YeelightDriver{
+		// make map of devices so we can add lights to it
+		devices: make(map[string]*YeelightDevice),
+	}
 
 	err := driver.Init(info)
 	if err != nil {
@@ -68,24 +56,10 @@ func NewYeelightDriver() (*YeelightDriver, error) {
 		log.Fatalf("Failed to export Yeelight driver: %s", err)
 	}
 
-	userAgent := driver.Conn.GetServiceClient("$device/:deviceId/channel/user-agent")
-	userAgent.OnEvent("pairing-requested", driver.OnPairingRequest)
+	//	userAgent := driver.Conn.GetServiceClient("$device/:deviceId/channel/user-agent")
+	//	userAgent.OnEvent("pairing-requested", driver.OnPairingRequest)
 
 	return driver, nil
-}
-
-func (d *YeelightDriver) OnPairingRequest(pairingRequest *events.PairingRequest, values map[string]string) bool {
-	log.Printf("Pairing request received from %s for %d seconds", values["deviceId"], pairingRequest.Duration)
-	d.SendEvent("pairing-started", &events.PairingStarted{
-		Duration: pairingRequest.Duration,
-	})
-	go func() {
-		time.Sleep(time.Second * time.Duration(pairingRequest.Duration))
-		d.SendEvent("pairing-ended", &events.PairingStarted{
-			Duration: pairingRequest.Duration,
-		})
-	}()
-	return true
 }
 
 // Start runs when the driver is started - called by the Ninja system (not the driver itself)
@@ -93,60 +67,40 @@ func (d *YeelightDriver) OnPairingRequest(pairingRequest *events.PairingRequest,
 func (d *YeelightDriver) Start(config *YeelightDriverConfig) error {
 	log.Printf("Yeelight Driver Starting with config %v", config)
 
-	var lightIDs []string
-	// make map so we can add lights to it
-	d.devices = make(map[string]*Yeelight)
-
 	d.config = config
 	if !d.config.Initialised {
 		// search for hub and get IP address
 		ip, err := yeelight.DiscoverHub()
 		if err != nil {
 			log.Panicf("ERROR discovering Yeelight hub: %v", err)
-			d.config = defaultConfig()
+			d.config = DefaultConfig()
 		} else {
 			// found hub, get lights and set config details
 			lights, _ := yeelight.GetLights(ip)
 			log.Printf("\nLights:\n%v\n", lights)
-			// get just light IDs from lights array
-			lightIDs = make([]string, len(lights))
-			for i := 0; i < len(lights); i++ {
-				lightIDs[i] = lights[i].ID
+			// Create Names map entries with light IDs from lights array as keys
+			for _, light := range lights {
+				// set default name for new lights
+				d.config.Names[light.ID] = "Yee" + light.ID
+				d.config.LightIDs = append(d.config.LightIDs, light.ID)
+
 			}
-			d.config = setConfig(ip, lightIDs)
-			log.Printf("Found these (%d) lights: %v at IP %v", len(lights), lightIDs, ip)
+			// save IP address to config
+			d.config.IP = ip
+			d.config.Initialised = true
+			log.Printf("Found these (%d) lights: %v at IP %v", len(lights), d.config.LightIDs, ip)
 		}
 	} else {
-		fmt.Println(d.config.Hub.LightIDs)
+		fmt.Println(d.config.LightIDs)
 	}
 
-	for i := 0; i < len(d.config.Hub.LightIDs); i++ {
-		//	for i := 0; i < 0; i++ {
-		log.Printf("Creating new Yeelight, %v", d.config.Hub.LightIDs[i])
-		device := NewYeelight(d, d.config.Hub.LightIDs[i])
-		d.devices[d.config.Hub.LightIDs[i]] = device
+	log.Printf("\n\nLightIDs: %v\nd.config.Names: %v\n\n", d.config.LightIDs, d.config.Names)
 
-		// createLightDevice does this now
-		//		err := d.Conn.ExportDevice(device)
-		//		if err != nil {
-		//			log.Fatalf("Failed to export Yeelight device %d: %s", i, err)
-		//		}
-
-		//		err = d.Conn.ExportChannel(device, device.SetBatch())
-		err := d.Conn.ExportChannel(device, device.onOffChannel, "on-off")
-		if err != nil {
-			log.Fatalf("Failed to export Yeelight on off channel %d: %s", i, err)
-		}
-
-		err = d.Conn.ExportChannel(device, device.brightnessChannel, "brightness")
-		if err != nil {
-			log.Fatalf("Failed to export Yeelight brightness channel %d: %s", i, err)
-		}
-
-		err = d.Conn.ExportChannel(device, device.colorChannel, "color")
-		if err != nil {
-			log.Fatalf("Failed to export Yeecolor channel %d: %s", i, err)
-		}
+	// create device for each light and add it to devices map in driver
+	for id, _ := range d.config.Names {
+		log.Printf("Creating new Yeelight, %v", id)
+		device := NewYeelightDevice(d, id, d.config.IP)
+		d.devices[id] = device
 	}
 
 	// Provide configuration page (labs)
@@ -158,7 +112,6 @@ func (d *YeelightDriver) Start(config *YeelightDriverConfig) error {
 }
 
 // I think Stop should be different
-
 func (d *YeelightDriver) Stop() error {
 	return fmt.Errorf("This driver does not support being stopped. YOU HAVE NO POWER HERE.")
 }
@@ -169,34 +122,25 @@ func (d *YeelightDriver) Rename(names map[string]string) error {
 	// as well as the driver config, we also need to set the device names
 	for id, newName := range names {
 		//		fmt.Printf("\nid %v, name %v\n", id, newName)
-		//		fmt.Println(d.DriverSupport.GetModuleInfo().)
-		//		d.devices[id].driver.GetModuleInfo().Name = newName
-		d.devices[id].info.Name = &newName
-		d.devices[id].thing.Name = newName
-		fmt.Printf("\nThing name %v\n", d.devices[id].thing.Name)
+		d.devices[id].GetDeviceInfo().Name = &newName
 		//		d.devices[id].sendEvent("renamed", &newName)
 
 	}
-
 	// save the new configuration
 	return d.SendEvent("config", d.config)
 }
 
-// What are these things? Age: 30?
-
-//type In struct {
-//	Name string
-//}
-//
-//type Out struct {
-//	Age  int
-//	Name string
-//}
-//
-//func (d *YeelightDriver) Blarg(in *In) (*Out, error) {
-//	log.Printf("GOT INCOMING! %s", in.Name)
-//	return &Out{
-//		Name: in.Name,
-//		Age:  30,
-//	}, nil
+// I think I don't need this! (not in samsung-tv or lifx)
+//func (d *YeelightDriver) OnPairingRequest(pairingRequest *events.PairingRequest, values map[string]string) bool {
+//	log.Printf("Pairing request received from %s for %d seconds", values["deviceId"], pairingRequest.Duration)
+//	d.SendEvent("pairing-started", &events.PairingStarted{
+//		Duration: pairingRequest.Duration,
+//	})
+//	go func() {
+//		time.Sleep(time.Second * time.Duration(pairingRequest.Duration))
+//		d.SendEvent("pairing-ended", &events.PairingStarted{
+//			Duration: pairingRequest.Duration,
+//		})
+//	}()
+//	return true
 //}

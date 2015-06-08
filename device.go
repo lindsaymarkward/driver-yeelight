@@ -5,43 +5,29 @@ package main
 import (
 	"fmt"
 	"log"
-	"regexp"
-	"strings"
 
 	"github.com/lindsaymarkward/go-yeelight"
-	"github.com/ninjasphere/go-ninja/api"
 	"github.com/ninjasphere/go-ninja/channels"
 	"github.com/ninjasphere/go-ninja/devices"
 	"github.com/ninjasphere/go-ninja/model"
 )
 
-type Yeelight struct {
-	devices.LightDevice
-	ip                string
-	state             bool
-	driver            ninja.Driver
-	info              *model.Device
-	thing             *model.Thing
-	device            *devices.LightDevice
-	sendEvent         func(event string, payload interface{}) error
-	onOffChannel      *channels.OnOffChannel
-	brightnessChannel *channels.BrightnessChannel
-	colorChannel      *channels.ColorChannel
-	transitionChannel *channels.TransitionChannel
-	identifyChannel   *channels.IdentifyChannel
+type YeelightDevice struct {
+	*devices.LightDevice        // why isn't this as a pointer - don't we need to mutate it?
+	IP                   string // driver config has this, but can't access it easily from light
+	//	state             bool	// LightDevice has this
+		sendEvent         func(event string, payload interface{}) error
+	//	onOffChannel      *channels.OnOffChannel
+	//	brightnessChannel *channels.BrightnessChannel
+	//	colorChannel      *channels.ColorChannel
+	//	transitionChannel *channels.TransitionChannel
+	//	identifyChannel   *channels.IdentifyChannel
 }
 
-// NewYeelight creates a light device, given a driver and an id (hex code used by Yeelight hub)
-func NewYeelight(driver *YeelightDriver, id string) *Yeelight {
-	// only give programmed name if it doesn't already have one
-	var name string
-	if driver.config.Names[id] == "" {
-		name = fmt.Sprintf("Lt %v", id)
-		driver.config.Names[id] = name
-	} else {
-		name = driver.config.Names[id]
-	}
+// NewYeelightDevice creates a light device, given a driver and an id (hex code used by Yeelight hub)
+func NewYeelightDevice(d *YeelightDriver, id string, ip string) *YeelightDevice {
 
+	name := d.config.Names[id]
 	infoModel := &model.Device{
 		NaturalID:     fmt.Sprintf("%s", id),
 		NaturalIDType: "light",
@@ -54,145 +40,84 @@ func NewYeelight(driver *YeelightDriver, id string) *Yeelight {
 		},
 	}
 
-	lightDevice, err := devices.CreateLightDevice(driver, infoModel, driver.Conn)
+	// create a "proper" LightDevice using Ninja's built-in type
+	lightDevice, err := devices.CreateLightDevice(d, infoModel, d.Conn)
 	if err != nil {
-		log.Printf("Error creating light device")
+		log.Printf("Error creating light device %v\n", id)
 	}
 
-	light := &Yeelight{
-		ip:     driver.config.Hub.IP, // "192.168.1.59",
-		driver: driver,
-		device: lightDevice,
-		info:   infoModel,
-		thing: &model.Thing{
-			Name: name,
-		},
-	}
-
-	// what channels
-	light.onOffChannel = channels.NewOnOffChannel(light)
-	light.brightnessChannel = channels.NewBrightnessChannel(light)
-	light.colorChannel = channels.NewColorChannel(light)
-	// these 2 are only here to test/fix the crash on setBatch
-	light.transitionChannel = channels.NewTransitionChannel(light)
-	light.identifyChannel = channels.NewIdentifyChannel(light)
+	// Functions for connecting built-in events to Yeelight commands
 
 	// ApplyLightState runs when airwheeling...
-	light.device.ApplyLightState = func(state *devices.LightDeviceState) error {
+	lightDevice.ApplyLightState = func(state *devices.LightDeviceState) error {
 		// for some reason, nothing prints in here...
-		//		fmt.Printf("\n\nWOW!! %v\n\n", state)
-//		log.Printf("Batch: %v", state)
+		log.Printf("Batch: %v", state)
 		if state.OnOff != nil {
-			err := light.SetOnOff(*state.OnOff)
-			if err != nil {
-				return err
-			}
+			err = yeelight.SetOnOff(lightDevice.GetDeviceInfo().NaturalID, *state.OnOff, ip)
 		}
 		if state.Brightness != nil {
-			light.SetBrightness(*state.Brightness)
-//			log.Printf("\nBrightness: %v\n\n", *state.Brightness)
+			// state.Brightness is a float value between 0-1
+			err = yeelight.SetBrightness(lightDevice.GetDeviceInfo().NaturalID, *state.Brightness, ip)
 		}
 		if state.Color != nil {
-			light.SetColor(state.Color)
+			err = lightDevice.ApplyColor(state.Color)
 		}
-		return nil
-	}
-	return light
-}
-
-func (l *Yeelight) GetDeviceInfo() *model.Device {
-	return l.info
-}
-
-func (l *Yeelight) GetDriver() ninja.Driver {
-	return l.driver
-}
-
-// these functions are where the action happens - send commands to the Yeelight bulbs
-
-func (l *Yeelight) SetOnOff(state bool) error {
-	log.Printf("Turning %t", state)
-	// turn light on/off (yeelight.SetOnOff handles state choice)
-	yeelight.SetOnOff(l.info.NaturalID, state, l.ip)
-	l.state = state
-	l.onOffChannel.SendState(state)
-	if l.state {
-		l.brightnessChannel.SendState(1)
-	} else {
-		l.brightnessChannel.SendState(0)
-	}
-	return nil
-}
-
-func (l *Yeelight) ToggleOnOff() error {
-	log.Println("\n\nToggling!\n")
-	yeelight.ToggleOnOff(l.info.NaturalID, l.ip)
-	l.state = !l.state
-	l.onOffChannel.SendState(l.state)
-	if l.state {
-		l.brightnessChannel.SendState(1)
-	} else {
-		l.brightnessChannel.SendState(0)
-	}
-	return nil
-}
-
-// SetColor takes a color state struct and sets the colour of the light
-// the color state struct contains the "Mode" of light that has been set,
-// which can either be "hue" or "temperature" for Yeelights
-func (l *Yeelight) SetColor(state *channels.ColorState) error {
-	//	log.Printf("Setting color state to %#v", state)
-	var r, g, b uint8
-	if state.Mode == "temperature" {
-		// temperature is in the range [2000, 6500]
-		//		log.Printf("Temp: %v", *state.Temperature)
-		r, g, b = TemperatureToRGB(*state.Temperature)
-	} else {
-		// state must be "hue"
-		//		log.Printf("Hue: %v, Sat: %v", *state.Hue, *state.Saturation)
-		r, g, b = HSVToRGB(*state.Hue, *state.Saturation, 1)
-	}
-	log.Printf("Setting colour to RGB = %v, %v, %v\n", r, g, b)
-
-	yeelight.SetColor(l.info.NaturalID, r, g, b, l.ip)
-	l.colorChannel.SendState(state)
-
-	return nil
-}
-
-// SetBrightness takes a brightness value (0-1) and calls yeelight.SetBrightness to... set the brightness
-func (l *Yeelight) SetBrightness(value float64) error {
-	log.Printf("Setting brightness to %f", value)
-	yeelight.SetBrightness(l.info.NaturalID, value, l.ip)
-	if value == 0 {
-		l.state = false
-	} else {
-		l.state = true
-	}
-	l.onOffChannel.SendState(l.state)
-	l.brightnessChannel.SendState(value)
-	return nil
-}
-
-func (l *Yeelight) SetEventHandler(sendEvent func(event string, payload interface{}) error) {
-	l.sendEvent = sendEvent
-}
-
-var reg, _ = regexp.Compile("[^a-z0-9]")
-
-// Exported by service/device schema
-func (l *Yeelight) SetName(name *string) (*string, error) {
-	log.Printf("\n\n\nSetting device name to %s\n\n\n", *name)
-
-	safe := reg.ReplaceAllString(strings.ToLower(*name), "")
-	if len(safe) > 5 {
-		safe = safe[0:5]
+		return err
 	}
 
-	// Why is this here??
-	log.Printf("Pretending we can only set 5 lowercase alphanum. Name now: %s", safe)
+	// ApplyColor takes a color state struct and sets the colour of the light
+	// the color state struct contains the "Mode" of light that has been set,
+	// which can either be "hue" or "temperature" for Yeelights
+	lightDevice.ApplyColor = func(state *channels.ColorState) error {
+		var r, g, b uint8
+		if state.Mode == "temperature" {
+			// temperature is in the range [2000, 6500]
+			r, g, b = yeelight.TemperatureToRGB(*state.Temperature)
+		} else {
+			// state must be "hue"
+			r, g, b = yeelight.HSVToRGB(*state.Hue, *state.Saturation, 1)
+		}
+		log.Printf("Setting colour to RGB = %v, %v, %v\n", r, g, b)
 
-	l.sendEvent("renamed", safe)
+		return yeelight.SetColor(lightDevice.GetDeviceInfo().NaturalID, r, g, b, ip)
+	}
 
-	return &safe, nil
+	// enable channels that Yeelight supports
+	if err := lightDevice.EnableOnOffChannel(); err != nil {
+		log.Printf("Could not enable on-off channel. %v", err)
+	}
+	if err := lightDevice.EnableBrightnessChannel(); err != nil {
+		log.Printf("Could not enable brightness channel. %v", err)
+	}
+	if err := lightDevice.EnableColorChannel("temperature", "hue"); err != nil {
+		log.Printf("Could not enable color channel. %v", err)
+	}
+
+	return &YeelightDevice{LightDevice: lightDevice, IP: ip}
 }
+
+
+// doesn't seem to be necessary. In lifx, not samsung-tv
+// (this doesn't SendState events)
+//func (l *YeelightDevice) SetEventHandler(sendEvent func(event string, payload interface{}) error) {
+//	l.sendEvent = sendEvent
+//}
+
+//var reg, _ = regexp.Compile("[^a-z0-9]")
+//
+//// Exported by service/device schema
+//func (l *YeelightDevice) SetName(name *string) (*string, error) {
+//	log.Printf("\n\n\nSetting device name to %s\n\n\n", *name)
+//
+//	safe := reg.ReplaceAllString(strings.ToLower(*name), "")
+//	if len(safe) > 5 {
+//		safe = safe[0:5]
+//	}
+//
+//	// Why is this here??
+//	log.Printf("Pretending we can only set 5 lowercase alphanum. Name now: %s", safe)
+//
+//	l.sendEvent("renamed", safe)
+//
+//	return &safe, nil
+//}

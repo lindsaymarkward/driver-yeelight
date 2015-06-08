@@ -4,9 +4,9 @@ package main
 // This file contains most of the code for the UI (i.e. what appears in the Labs)
 
 import (
+	"encoding/json"
 	"fmt"
 	"log"
-	"encoding/json"
 	"strings"
 
 	"github.com/lindsaymarkward/go-yeelight"
@@ -83,11 +83,21 @@ func (c *configService) Configure(request *model.ConfigurationRequest) (*suit.Co
 		return c.list()
 
 	case "allOff":
-		yeelight.TurnOffAllLights(c.driver.config.Hub.IP)
+		yeelight.TurnOffAllLights(c.driver.config.IP)
 		// sendState of all lights
-		for _, device := range c.driver.devices {
-			device.onOffChannel.SendState(false)
-		}
+		//		for _, device := range c.driver.devices {
+		//			device.onOffChannel.SendState(false)
+		//		}
+		return c.list()
+
+	case "reset":
+		return c.confirmReset()
+
+	case "confirmReset":
+		// TODO: Find a way to restart driver here
+		c.driver.config = DefaultConfig()
+		c.driver.config.Initialised = false
+		c.driver.SendEvent("config", c.driver.config)
 		return c.list()
 
 	default:
@@ -101,7 +111,7 @@ func (c *configService) list() (*suit.ConfigurationScreen, error) {
 	lightInputs := []suit.Typed{}
 
 	// create text field and action button for each light
-	for _, lightID := range c.driver.config.Hub.LightIDs {
+	for _, lightID := range c.driver.config.LightIDs {
 		name := "id" + lightID // create name field from ID so each name is unique
 		lightInputs = append(lightInputs, suit.InputText{
 			Name:        name,
@@ -167,7 +177,12 @@ func (c *configService) list() (*suit.ConfigurationScreen, error) {
 			suit.CloseAction{
 				Label: "Close",
 			},
-			// TODO: Add a reset/rescan button - refactor part of Start out and use that
+			suit.ReplyAction{
+				Label:        "Reset",
+				Name:         "reset",
+				DisplayClass: "warning",
+				DisplayIcon:  "warning",
+			},
 			suit.ReplyAction{
 				Label:        "All Off",
 				Name:         "allOff",
@@ -204,6 +219,36 @@ func (c *configService) error(message string) (*suit.ConfigurationScreen, error)
 			suit.ReplyAction{
 				Label: "Cancel",
 				Name:  "list",
+			},
+		},
+	}, nil
+}
+
+func (c *configService) confirmReset() (*suit.ConfigurationScreen, error) {
+	return &suit.ConfigurationScreen{
+		Sections: []suit.Section{
+			suit.Section{
+				Contents: []suit.Typed{
+					suit.Alert{
+						Title:        "Confirm Reset",
+						Subtitle:     "Do you really want to reset the configuration?\nThis will clear all custom light names.",
+						DisplayClass: "danger",
+						DisplayIcon: "warning",
+					},
+				},
+			},
+		},
+		Actions: []suit.Typed{
+			suit.ReplyAction{
+				Label: "Cancel",
+				Name:  "list",
+				DisplayIcon: "close",
+			},
+			suit.ReplyAction{
+				Label: "Confirm - Reset",
+				Name:  "confirmReset",
+				DisplayClass: "warning",
+				DisplayIcon: "check",
 			},
 		},
 	}, nil
