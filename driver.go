@@ -1,7 +1,7 @@
 package main
 
 // Ninja Sphere driver for Yeelight Sunflower light bulbs ()
-// originally copied from FakeDriver and modified
+
 
 import (
 	"fmt"

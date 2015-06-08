@@ -4,9 +4,9 @@ package main
 // This file contains most of the code for the UI (i.e. what appears in the Labs)
 
 import (
-	"encoding/json"
 	"fmt"
 	"log"
+	"encoding/json"
 	"strings"
 
 	"github.com/lindsaymarkward/go-yeelight"
@@ -23,7 +23,7 @@ func (c *configService) GetActions(request *model.ConfigurationRequest) (*[]suit
 		suit.ReplyAction{
 			Name:        "",
 			Label:       "Yeelight",
-			DisplayIcon: "lightbulb-o", // DisplayIcon should have a value from fontawesome, without the "fa-" at the start
+			DisplayIcon: "lightbulb-o", // DisplayIcon should have a value from Font Awesome, without the "fa-" at the start
 		},
 	}, nil
 }

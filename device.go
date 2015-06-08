@@ -1,5 +1,7 @@
 package main
 
+// Yeelight device for Ninja Sphere driver
+
 import (
 	"fmt"
 	"log"
