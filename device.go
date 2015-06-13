@@ -7,21 +7,15 @@ import (
 	"log"
 
 	"github.com/lindsaymarkward/go-yeelight"
-	"github.com/ninjasphere/go-ninja/channels"
 	"github.com/ninjasphere/go-ninja/devices"
 	"github.com/ninjasphere/go-ninja/model"
+	"github.com/ninjasphere/go-ninja/channels"
 )
 
 type YeelightDevice struct {
-	*devices.LightDevice        // why isn't this as a pointer - don't we need to mutate it?
-	IP                   string // driver config has this, but can't access it easily from light
-	//	state             bool	// LightDevice has this
-		sendEvent         func(event string, payload interface{}) error
-	//	onOffChannel      *channels.OnOffChannel
-	//	brightnessChannel *channels.BrightnessChannel
-	//	colorChannel      *channels.ColorChannel
-	//	transitionChannel *channels.TransitionChannel
-	//	identifyChannel   *channels.IdentifyChannel
+	*devices.LightDevice
+	IP string // driver config has this, but can't access it easily from light
+	sendEvent func(event string, payload interface{}) error
 }
 
 // NewYeelightDevice creates a light device, given a driver and an id (hex code used by Yeelight hub)
@@ -40,28 +34,65 @@ func NewYeelightDevice(d *YeelightDriver, id string, ip string) *YeelightDevice 
 		},
 	}
 
-	// create a "proper" LightDevice using Ninja's built-in type
+	// create a "proper" LightDevice using go-ninja's "light" device type
 	lightDevice, err := devices.CreateLightDevice(d, infoModel, d.Conn)
 	if err != nil {
 		log.Printf("Error creating light device %v\n", id)
 	}
 
+	// ?? test - set ThingID in Device
+	//	fmt.Printf("\nInfo: %v\n", lightDevice.GetDeviceInfo())
+	//	fmt.Printf("\nLight name %v has ThingID %v\n", name, lightDevice.GetDeviceInfo().ThingID)
+	//	lightDevice.GetDeviceInfo().ThingID = &name
+	//	fmt.Printf("\n- Now name %v has ThingID %v\n", name, *lightDevice.GetDeviceInfo().ThingID)
+
 	// Functions for connecting built-in events to Yeelight commands
 
-	// ApplyLightState runs when airwheeling...
+	// ApplyLightState runs for a number of actions, including when airwheeling for brightness and color
 	lightDevice.ApplyLightState = func(state *devices.LightDeviceState) error {
 		// for some reason, nothing prints in here...
-		log.Printf("Batch: %v", state)
+		log.Printf("Applying Light State: %v\n", *state)
 		if state.OnOff != nil {
 			err = yeelight.SetOnOff(lightDevice.GetDeviceInfo().NaturalID, *state.OnOff, ip)
+//			lightDevice.UpdateOnOffState(*state.OnOff)
+//			if *state.OnOff {
+////				lightDevice.UpdateBrightnessState(1)
+//				state.Brightness = &float64(1.0)
+//			} else {
+//				state.Brightness = &float64(0.0)
+//				lightDevice.UpdateBrightnessState(0)
+//			}
+			var brightness float64
+			if *state.OnOff {
+				brightness = 1.0
+			} else {
+				brightness = 0.0
+			}
+			state.Brightness = &brightness
 		}
 		if state.Brightness != nil {
 			// state.Brightness is a float value between 0-1
 			err = yeelight.SetBrightness(lightDevice.GetDeviceInfo().NaturalID, *state.Brightness, ip)
+//			lightDevice.UpdateBrightnessState(*state.Brightness)
+//			if *state.Brightness > 0 {
+////				lightDevice.UpdateOnOffState(true)
+//				state.OnOff = true
+//			} else {
+////				lightDevice.UpdateOnOffState(false)
+//				state.OnOff = false
+//			}
+			onOff := true
+			if *state.Brightness == 0 {
+				onOff = false
+			}
+			state.OnOff = &onOff
+
 		}
 		if state.Color != nil {
 			err = lightDevice.ApplyColor(state.Color)
+//			lightDevice.UpdateColorState(*state.Color)
 		}
+		lightDevice.SetLightState(state)
 		return err
 	}
 
@@ -69,6 +100,7 @@ func NewYeelightDevice(d *YeelightDriver, id string, ip string) *YeelightDevice 
 	// the color state struct contains the "Mode" of light that has been set,
 	// which can either be "hue" or "temperature" for Yeelights
 	lightDevice.ApplyColor = func(state *channels.ColorState) error {
+		log.Printf("Applying Color: %v\n", *state)
 		var r, g, b uint8
 		if state.Mode == "temperature" {
 			// temperature is in the range [2000, 6500]
@@ -82,6 +114,15 @@ func NewYeelightDevice(d *YeelightDriver, id string, ip string) *YeelightDevice 
 		return yeelight.SetColor(lightDevice.GetDeviceInfo().NaturalID, r, g, b, ip)
 	}
 
+	// ApplyOnOff takes a bool and sets the light to on or off,
+	// updating brightness state as well (0 or 1, which is maximum)
+	lightDevice.ApplyOnOff = func(state bool) error {
+		log.Printf("Applying onOff %v\n", state)
+		err = yeelight.SetOnOff(lightDevice.GetDeviceInfo().NaturalID, state, ip)
+
+		return err
+	}
+
 	// enable channels that Yeelight supports
 	if err := lightDevice.EnableOnOffChannel(); err != nil {
 		log.Printf("Could not enable on-off channel. %v", err)
@@ -89,35 +130,9 @@ func NewYeelightDevice(d *YeelightDriver, id string, ip string) *YeelightDevice 
 	if err := lightDevice.EnableBrightnessChannel(); err != nil {
 		log.Printf("Could not enable brightness channel. %v", err)
 	}
-	if err := lightDevice.EnableColorChannel("temperature", "hue"); err != nil {
+	if err := lightDevice.EnableColorChannel("hue"); err != nil {
 		log.Printf("Could not enable color channel. %v", err)
 	}
 
 	return &YeelightDevice{LightDevice: lightDevice, IP: ip}
 }
-
-
-// doesn't seem to be necessary. In lifx, not samsung-tv
-// (this doesn't SendState events)
-//func (l *YeelightDevice) SetEventHandler(sendEvent func(event string, payload interface{}) error) {
-//	l.sendEvent = sendEvent
-//}
-
-//var reg, _ = regexp.Compile("[^a-z0-9]")
-//
-//// Exported by service/device schema
-//func (l *YeelightDevice) SetName(name *string) (*string, error) {
-//	log.Printf("\n\n\nSetting device name to %s\n\n\n", *name)
-//
-//	safe := reg.ReplaceAllString(strings.ToLower(*name), "")
-//	if len(safe) > 5 {
-//		safe = safe[0:5]
-//	}
-//
-//	// Why is this here??
-//	log.Printf("Pretending we can only set 5 lowercase alphanum. Name now: %s", safe)
-//
-//	l.sendEvent("renamed", safe)
-//
-//	return &safe, nil
-//}

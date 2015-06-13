@@ -8,8 +8,8 @@ import (
 
 	"github.com/lindsaymarkward/go-yeelight"
 	"github.com/ninjasphere/go-ninja/api"
-	"github.com/ninjasphere/go-ninja/model"
 	"github.com/ninjasphere/go-ninja/support"
+	"github.com/ninjasphere/go-ninja/model"
 )
 
 var info = ninja.LoadModuleInfo("./package.json")
@@ -101,7 +101,27 @@ func (d *YeelightDriver) Start(config *YeelightDriverConfig) error {
 		log.Printf("Creating new Yeelight, %v", id)
 		device := NewYeelightDevice(d, id, d.config.IP)
 		d.devices[id] = device
+		//		fmt.Printf("\nDevice %v has deviceID %v\n", *device.GetDeviceInfo().Name, device.GetDeviceInfo().ID)
 	}
+	// TODO: trying to set ThingIDs so we can set Thing.Name
+	//	thingClient := d.Conn.GetServiceClient("$home/services/ThingModel")
+	//	things := make([]*model.Thing, 0)
+	//	keptThings := make([]*model.Thing, 0, len(things))
+	//	if err := thingClient.Call("fetchAll", nil, &things, 10*time.Second); err != nil {
+	//		fmt.Printf("ERROR getting things, %v\n", err)
+	//	}
+	//
+	//	fmt.Printf("\n\n")
+	//	for _, thing := range things {
+	//		if thing.Type == "light" {
+	//			keptThings = append(keptThings, thing)
+	//			fmt.Printf("> %v (%v)\n", *thing.DeviceID, thing.Name)
+	//			if thing.Name == "Lt 143F" {
+	//				thing.Name = "Yee 143F"
+	//				fmt.Printf("\n\n!! %v\n", thing.Name)
+	//			}
+	//		}
+	//	}
 
 	// Provide configuration page (labs)
 	d.Conn.MustExportService(&configService{d}, "$driver/"+info.ID+"/configure", &model.ServiceAnnouncement{
@@ -129,18 +149,3 @@ func (d *YeelightDriver) Rename(names map[string]string) error {
 	// save the new configuration
 	return d.SendEvent("config", d.config)
 }
-
-// I think I don't need this! (not in samsung-tv or lifx)
-//func (d *YeelightDriver) OnPairingRequest(pairingRequest *events.PairingRequest, values map[string]string) bool {
-//	log.Printf("Pairing request received from %s for %d seconds", values["deviceId"], pairingRequest.Duration)
-//	d.SendEvent("pairing-started", &events.PairingStarted{
-//		Duration: pairingRequest.Duration,
-//	})
-//	go func() {
-//		time.Sleep(time.Second * time.Duration(pairingRequest.Duration))
-//		d.SendEvent("pairing-ended", &events.PairingStarted{
-//			Duration: pairingRequest.Duration,
-//		})
-//	}()
-//	return true
-//}

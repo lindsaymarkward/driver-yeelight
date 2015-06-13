@@ -9,9 +9,9 @@ import (
 	"log"
 	"strings"
 
-	"github.com/lindsaymarkward/go-yeelight"
 	"github.com/ninjasphere/go-ninja/model"
 	"github.com/ninjasphere/go-ninja/suit"
+	"github.com/lindsaymarkward/go-yeelight"
 )
 
 type configService struct {
@@ -233,22 +233,22 @@ func (c *configService) confirmReset() (*suit.ConfigurationScreen, error) {
 						Title:        "Confirm Reset",
 						Subtitle:     "Do you really want to reset the configuration?\nThis will clear all custom light names.",
 						DisplayClass: "danger",
-						DisplayIcon: "warning",
+						DisplayIcon:  "warning",
 					},
 				},
 			},
 		},
 		Actions: []suit.Typed{
 			suit.ReplyAction{
-				Label: "Cancel",
-				Name:  "list",
+				Label:       "Cancel",
+				Name:        "list",
 				DisplayIcon: "close",
 			},
 			suit.ReplyAction{
-				Label: "Confirm - Reset",
-				Name:  "confirmReset",
+				Label:        "Confirm - Reset",
+				Name:         "confirmReset",
 				DisplayClass: "warning",
-				DisplayIcon: "check",
+				DisplayIcon:  "check",
 			},
 		},
 	}, nil
