@@ -83,7 +83,6 @@ func (d *YeelightDriver) Start(config *YeelightDriverConfig) error {
 				// set default name for new lights
 				d.config.Names[light.ID] = "Yee" + light.ID
 				d.config.LightIDs = append(d.config.LightIDs, light.ID)
-
 			}
 			// save IP address to config
 			d.config.IP = ip
@@ -104,6 +103,7 @@ func (d *YeelightDriver) Start(config *YeelightDriverConfig) error {
 		//		fmt.Printf("\nDevice %v has deviceID %v\n", *device.GetDeviceInfo().Name, device.GetDeviceInfo().ID)
 	}
 	// TODO: trying to set ThingIDs so we can set Thing.Name
+	// can get access to it but setting it doesn't do anything
 	//	thingClient := d.Conn.GetServiceClient("$home/services/ThingModel")
 	//	things := make([]*model.Thing, 0)
 	//	keptThings := make([]*model.Thing, 0, len(things))

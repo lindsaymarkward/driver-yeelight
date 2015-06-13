@@ -12,6 +12,7 @@ import (
 	"github.com/ninjasphere/go-ninja/model"
 	"github.com/ninjasphere/go-ninja/suit"
 	"github.com/lindsaymarkward/go-yeelight"
+	"github.com/lindsaymarkward/go-ninja/devices"
 )
 
 type configService struct {
@@ -22,7 +23,7 @@ func (c *configService) GetActions(request *model.ConfigurationRequest) (*[]suit
 	return &[]suit.ReplyAction{
 		suit.ReplyAction{
 			Name:        "",
-			Label:       "Yeelight",
+			Label:       "Yeelight Sunflower Bulbs",
 			DisplayIcon: "lightbulb-o", // DisplayIcon should have a value from Font Awesome, without the "fa-" at the start
 		},
 	}, nil
@@ -67,7 +68,6 @@ func (c *configService) Configure(request *model.ConfigurationRequest) (*suit.Co
 		if err != nil {
 			return c.error(fmt.Sprintf("Failed to unmarshal save config request %s: %s", request.Data, err))
 		}
-		//		yeelight.SetOnOff(values["lightID"], true, c.driver.config.Hub.IP)
 		c.driver.devices[values["lightID"]].SetOnOff(true)
 		return c.list()
 
@@ -77,17 +77,17 @@ func (c *configService) Configure(request *model.ConfigurationRequest) (*suit.Co
 		if err != nil {
 			return c.error(fmt.Sprintf("Failed to unmarshal save config request %s: %s", request.Data, err))
 		}
-		//		yeelight.SetOnOff(values["lightID"], false, c.driver.config.Hub.IP)
 		c.driver.devices[values["lightID"]].SetOnOff(false)
 
 		return c.list()
 
 	case "allOff":
 		yeelight.TurnOffAllLights(c.driver.config.IP)
-		// sendState of all lights
-		//		for _, device := range c.driver.devices {
-		//			device.onOffChannel.SendState(false)
-		//		}
+		// update state of all lights for UI
+		onOff := false
+				for _, device := range c.driver.devices {
+					device.UpdateLightState(&devices.LightDeviceState{OnOff: &onOff})
+				}
 		return c.list()
 
 	case "reset":
@@ -98,6 +98,13 @@ func (c *configService) Configure(request *model.ConfigurationRequest) (*suit.Co
 		c.driver.config = DefaultConfig()
 		c.driver.config.Initialised = false
 		c.driver.SendEvent("config", c.driver.config)
+
+		// maybe like this (from samsung-tv)?
+//		go func() {
+//			time.Sleep(time.Second * 2)
+//			os.Exit(0)
+//		}()
+
 		return c.list()
 
 	default:
@@ -105,8 +112,8 @@ func (c *configService) Configure(request *model.ConfigurationRequest) (*suit.Co
 	}
 }
 
+// list displays the main screen with light names to edit and controls
 func (c *configService) list() (*suit.ConfigurationScreen, error) {
-
 	lightActions := []suit.ActionListOption{}
 	lightInputs := []suit.Typed{}
 
@@ -119,9 +126,13 @@ func (c *configService) list() (*suit.ConfigurationScreen, error) {
 			Placeholder: "Custom name",
 			Value:       c.driver.config.Names[lightID],
 		})
+		title := c.driver.config.Names[lightID] + " (" + lightID + ") On"
+		if isOn, _ := c.driver.devices[lightID].IsOn(); isOn {
+			title += " *"
+		}
 		lightActions = append(lightActions, suit.ActionListOption{
-			Title: c.driver.config.Names[lightID] + " (" + lightID + ") On",
-			Value: lightID,
+		Title: title,
+		Value: lightID,
 		})
 	}
 
@@ -130,12 +141,14 @@ func (c *configService) list() (*suit.ConfigurationScreen, error) {
 		Sections: []suit.Section{
 			suit.Section{
 				Title:    "Rename Lights",
+				Subtitle: " Switching lights below will discard any changes to names not saved",
 				Contents: lightInputs,
 			},
 
-			// On/Off buttons for testing to find which lights are which
+			// On/Off buttons for controlling or finding which lights are which
 			suit.Section{
 				Title: "Switch Lights",
+				Subtitle: "* indicates light is currently on",
 				Contents: []suit.Typed{
 					suit.ActionList{
 						Name:    "lightID", // the field name for which light was clicked
@@ -144,7 +157,7 @@ func (c *configService) list() (*suit.ConfigurationScreen, error) {
 							Name:         "on",
 							Label:        "On",
 							DisplayIcon:  "toggle-on",
-							DisplayClass: "success", // this doesn't change the default
+							DisplayClass: "success", // this doesn't change the default - can't change, it seems
 						},
 						SecondaryAction: &suit.ReplyAction{
 							Name:         "off",
