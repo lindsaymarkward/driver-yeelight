@@ -1,8 +1,8 @@
 {
   "id": "lindsaymarkward.sphere-yeelight",
   "name": "Yeelight Sunflower Driver",
-  "version": "0.2.0",
-  "description": "Control of Yeelight Sunflower bulbs using TCP",
+  "version": "0.3.0",
+  "description": "Ninja Sphere control of Yeelight Sunflower bulbs using TCP",
   "main": "sphere-yeelight",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1"
