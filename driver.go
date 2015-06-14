@@ -8,8 +8,8 @@ import (
 
 	"github.com/lindsaymarkward/go-yeelight"
 	"github.com/ninjasphere/go-ninja/api"
-	"github.com/ninjasphere/go-ninja/support"
 	"github.com/ninjasphere/go-ninja/model"
+	"github.com/ninjasphere/go-ninja/support"
 )
 
 var info = ninja.LoadModuleInfo("./package.json")
@@ -24,7 +24,14 @@ type YeelightDriverConfig struct {
 	IP          string
 	LightIDs    []string // needed in addition to map of Names due to being ordered
 	Names       map[string]string
+	PresetNames []string
+	Presets     map[string]*Preset
 	Initialised bool
+}
+
+type Preset struct {
+	//	Name   string	// name is the key in the map of Presets
+	Lights []yeelight.Light
 }
 
 // defaultConfig sets a default configuration for the YeelightDriverConfig with no lights
@@ -34,6 +41,7 @@ func DefaultConfig() *YeelightDriverConfig {
 		LightIDs:    make([]string, 0),
 		IP:          "",
 		Names:       make(map[string]string),
+		Presets:     make(map[string]*Preset),
 	}
 }
 
@@ -68,6 +76,9 @@ func (d *YeelightDriver) Start(config *YeelightDriverConfig) error {
 	log.Printf("Yeelight Driver Starting with config %v", config)
 
 	d.config = config
+	// TODO: GetLights and compare number to number in config, update new bulbs if needed
+	// here and as option in configuration - scan for new bulbs (both, function)
+
 	if !d.config.Initialised {
 		// search for hub and get IP address
 		ip, err := yeelight.DiscoverHub()
@@ -131,7 +142,7 @@ func (d *YeelightDriver) Start(config *YeelightDriverConfig) error {
 	return d.SendEvent("config", config)
 }
 
-// I think Stop should be different
+// I think Stop should be different ??
 func (d *YeelightDriver) Stop() error {
 	return fmt.Errorf("This driver does not support being stopped. YOU HAVE NO POWER HERE.")
 }
@@ -148,4 +159,82 @@ func (d *YeelightDriver) Rename(names map[string]string) error {
 	}
 	// save the new configuration
 	return d.SendEvent("config", d.config)
+}
+
+// SavePreset takes the data from the configuration and saves a new preset as an array of light values
+func (d *YeelightDriver) SavePreset(values *savePresetData) error {
+	lightStates, err := yeelight.GetLights(d.config.IP)
+	if err != nil {
+		return err
+	}
+	// handle "all" selection
+	lightsToSet := values.LightIDs
+	if values.LightIDs[0] == "all" {
+		lightsToSet = d.config.LightIDs
+	}
+	// save name to array of names so we can have consistent order on presets page
+	// unless it already exists (updating the preset)
+	if !containsString(d.config.PresetNames, values.Name) {
+		d.config.PresetNames = append(d.config.PresetNames, values.Name)
+	}
+	// create blank preset to save to
+	d.config.Presets[values.Name] = &Preset{Lights: make([]yeelight.Light, len(values.LightIDs))}
+	// for each light in preset
+	for _, lightID := range lightsToSet {
+		for _, light := range lightStates {
+			if lightID == light.ID {
+				d.config.Presets[values.Name].Lights = append(d.config.Presets[values.Name].Lights, light)
+				break
+			}
+		}
+	}
+
+	log.Printf("Saving preset: %v\n", values.Name)
+//	log.Printf("Current presets: %v\n", d.config.Presets)
+	// save the new configuration
+	return d.SendEvent("config", d.config)
+}
+
+// DeletePreset takes the name of a preset and deletes it from the config
+func (d *YeelightDriver) DeletePreset(name string) error {
+	// delete from map
+	delete(d.config.Presets, name)
+	// delete from array
+	i := pos(d.config.PresetNames, name)
+	d.config.PresetNames = append(d.config.PresetNames[:i], d.config.PresetNames[i+1:]...)
+
+	// save the new configuration
+	return d.SendEvent("config", d.config)
+
+}
+
+// ActivatePreset takes the name of a preset and sets the lights to match the values stored
+// only changes the lights the preset stores values for
+func (d *YeelightDriver) ActivatePreset(name string) error {
+	log.Printf("Activating preset: %v", name)
+	lights := d.config.Presets[name].Lights
+	var err error
+	for _, light := range lights {
+		err = yeelight.SetLight(light.ID, light.R, light.G, light.B, light.Level, d.config.IP)
+	}
+	return err
+}
+
+func containsString(haystack []string, needle string) bool {
+	for _, v := range haystack {
+		if v == needle {
+			return true
+		}
+	}
+	return false
+}
+
+// pos finds the position of a value in a slice, returns -1 if not found
+func pos(slice []string, value string) int {
+	for p, v := range slice {
+		if (v == value) {
+			return p
+		}
+	}
+	return -1
 }

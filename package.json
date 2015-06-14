@@ -1,7 +1,7 @@
 {
   "id": "lindsaymarkward.sphere-yeelight",
   "name": "Yeelight Sunflower Driver",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "Ninja Sphere control of Yeelight Sunflower bulbs using TCP",
   "main": "sphere-yeelight",
   "scripts": {

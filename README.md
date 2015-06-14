@@ -10,4 +10,9 @@ Identifies all lights and makes them available as things for the Ninja Sphere to
   - colour
   - brightness
   
-Use the configuration (in Labs or http://ninjasphere.local) to rename lights as well as to control them (on/off) directly.
+Use the configuration (in Labs or http://ninjasphere.local) to:
+ 
+  - rename lights 
+  - control them (on/off) directly
+  - create, delete and activate presets/scenes (collections of light states)
+  - reset driver, clearing existing light bulbs
