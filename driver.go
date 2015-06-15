@@ -21,23 +21,23 @@ type YeelightDriver struct {
 }
 
 type YeelightDriverConfig struct {
+	Initialised bool
 	IP          string
-	LightIDs    []string // needed in addition to map of Names due to being ordered
+	LightIDs    []string // need slices in addition to maps due to being ordered
 	Names       map[string]string
 	PresetNames []string
 	Presets     map[string]*Preset
-	Initialised bool
 }
 
 type Preset struct {
 	//	Name   string	// name is the key in the map of Presets
-	Lights []yeelight.Light
+	Lights []yeelight.Light	// TODO: consider storing only what we need, not everything (LQI, Effect...)
 }
 
 // defaultConfig sets a default configuration for the YeelightDriverConfig with no lights
 func DefaultConfig() *YeelightDriverConfig {
 	return &YeelightDriverConfig{
-		Initialised: true,
+		Initialised: true, // ?? consider making this false - what's the point of this otherwise?
 		LightIDs:    make([]string, 0),
 		IP:          "",
 		Names:       make(map[string]string),
@@ -74,37 +74,22 @@ func NewYeelightDriver() (*YeelightDriver, error) {
 // gets the hub and light details, sets the configuration
 func (d *YeelightDriver) Start(config *YeelightDriverConfig) error {
 	log.Printf("Yeelight Driver Starting with config %v", config)
-
 	d.config = config
-	// TODO: GetLights and compare number to number in config, update new bulbs if needed
-	// here and as option in configuration - scan for new bulbs (both, function)
 
 	if !d.config.Initialised {
-		// search for hub and get IP address
-		ip, err := yeelight.DiscoverHub()
-		if err != nil {
-			log.Panicf("ERROR discovering Yeelight hub: %v", err)
-			d.config = DefaultConfig()
-		} else {
-			// found hub, get lights and set config details
-			lights, _ := yeelight.GetLights(ip)
-			log.Printf("\nLights:\n%v\n", lights)
-			// Create Names map entries with light IDs from lights array as keys
-			for _, light := range lights {
-				// set default name for new lights
-				d.config.Names[light.ID] = "Yee" + light.ID
-				d.config.LightIDs = append(d.config.LightIDs, light.ID)
-			}
-			// save IP address to config
-			d.config.IP = ip
-			d.config.Initialised = true
-			log.Printf("Found these (%d) lights: %v at IP %v", len(lights), d.config.LightIDs, ip)
+		// Preserve presets if they exist
+		presetNames := config.PresetNames
+		presets := config.Presets
+		d.config = DefaultConfig()
+		if len(presetNames) > 0 {
+			log.Printf("Preserving presets: %v\n", presetNames)
+			d.config.Presets = presets
+			d.config.PresetNames = presetNames
 		}
-	} else {
-		fmt.Println(d.config.LightIDs)
-	}
 
-	log.Printf("\n\nLightIDs: %v\nd.config.Names: %v\n\n", d.config.LightIDs, d.config.Names)
+		d.ScanLightsToConfig()
+	}
+	log.Printf("\nLightIDs: %v\nNames: %v\n\n", d.config.LightIDs, d.config.Names)
 
 	// create device for each light and add it to devices map in driver
 	for id, _ := range d.config.Names {
@@ -142,6 +127,33 @@ func (d *YeelightDriver) Start(config *YeelightDriverConfig) error {
 	return d.SendEvent("config", config)
 }
 
+func (d *YeelightDriver) ScanLightsToConfig() error {
+	// search for hub and get IP address
+	ip, err := yeelight.DiscoverHub()
+	if err != nil {
+		log.Printf("ERROR discovering Yeelight hub: %v", err)
+	} else {
+		// found hub, get lights and set config details
+		log.Printf("Hub found at %s\n", ip)
+		lights, _ := yeelight.GetLights(ip)
+		// TODO: Consider how to remove a light. Resetting Yeelight hub manually, or maybe offer delete option
+//		log.Printf("\nLights: %v\n", lights)
+		// Create entries in Names map (light IDs from lights slice as keys) and LightIDs slice
+		for _, light := range lights {
+			// set default name for new lights
+			if !containsString(d.config.LightIDs, light.ID) {
+				d.config.Names[light.ID] = "Yee" + light.ID
+				d.config.LightIDs = append(d.config.LightIDs, light.ID)
+			}
+		}
+		// save IP address to config
+		d.config.IP = ip
+		d.config.Initialised = true
+		log.Printf("Found these (%d) lights: %v at IP %v", len(lights), d.config.LightIDs, ip)
+	}
+	return err
+}
+
 // I think Stop should be different ??
 func (d *YeelightDriver) Stop() error {
 	return fmt.Errorf("This driver does not support being stopped. YOU HAVE NO POWER HERE.")
@@ -161,7 +173,7 @@ func (d *YeelightDriver) Rename(names map[string]string) error {
 	return d.SendEvent("config", d.config)
 }
 
-// SavePreset takes the data from the configuration and saves a new preset as an array of light values
+// SavePreset takes the data from the configuration and saves a new preset as a slice of light values
 func (d *YeelightDriver) SavePreset(values *savePresetData) error {
 	lightStates, err := yeelight.GetLights(d.config.IP)
 	if err != nil {
@@ -172,7 +184,7 @@ func (d *YeelightDriver) SavePreset(values *savePresetData) error {
 	if values.LightIDs[0] == "all" {
 		lightsToSet = d.config.LightIDs
 	}
-	// save name to array of names so we can have consistent order on presets page
+	// save name to slice of names so we can have consistent order on presets page
 	// unless it already exists (updating the preset)
 	if !containsString(d.config.PresetNames, values.Name) {
 		d.config.PresetNames = append(d.config.PresetNames, values.Name)
@@ -190,7 +202,7 @@ func (d *YeelightDriver) SavePreset(values *savePresetData) error {
 	}
 
 	log.Printf("Saving preset: %v\n", values.Name)
-//	log.Printf("Current presets: %v\n", d.config.Presets)
+	//	log.Printf("Current presets: %v\n", d.config.Presets)
 	// save the new configuration
 	return d.SendEvent("config", d.config)
 }
@@ -199,7 +211,7 @@ func (d *YeelightDriver) SavePreset(values *savePresetData) error {
 func (d *YeelightDriver) DeletePreset(name string) error {
 	// delete from map
 	delete(d.config.Presets, name)
-	// delete from array
+	// delete from slice
 	i := pos(d.config.PresetNames, name)
 	d.config.PresetNames = append(d.config.PresetNames[:i], d.config.PresetNames[i+1:]...)
 
@@ -232,7 +244,7 @@ func containsString(haystack []string, needle string) bool {
 // pos finds the position of a value in a slice, returns -1 if not found
 func pos(slice []string, value string) int {
 	for p, v := range slice {
-		if (v == value) {
+		if v == value {
 			return p
 		}
 	}

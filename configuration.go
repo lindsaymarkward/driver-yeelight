@@ -105,8 +105,8 @@ func (c *configService) Configure(request *model.ConfigurationRequest) (*suit.Co
 		}
 		presetToDelete = values["name"]
 		return c.confirmDeletePreset()
-//		c.driver.DeletePreset(values["name"])
-//		return c.presets()
+		//		c.driver.DeletePreset(values["name"])
+		//		return c.presets()
 
 	case "rename":
 		return c.rename()
@@ -139,8 +139,23 @@ func (c *configService) Configure(request *model.ConfigurationRequest) (*suit.Co
 		}
 		return c.list()
 
-	case "reset":
-		return c.confirmReset()
+	case "resetAction":
+		var values map[string]string
+		err := json.Unmarshal(request.Data, &values)
+		if err != nil {
+			return c.error(fmt.Sprintf("Failed to unmarshal save config request %s: %s", request.Data, err))
+		}
+
+		switch values["choice"] {
+		case "reset":
+			return c.confirmReset()
+		case "scanNew":
+			c.driver.ScanLightsToConfig()
+			c.driver.SendEvent("config", c.driver.config)
+			return c.list()
+		default:
+			return c.error(fmt.Sprintf("Unknown option %v\n", values["choice"]))
+		}
 
 	case "confirmReset":
 		var values map[string][]string
@@ -158,15 +173,8 @@ func (c *configService) Configure(request *model.ConfigurationRequest) (*suit.Co
 			c.driver.config.PresetNames = presetNames
 			c.driver.config.Presets = presets
 		}
+		c.driver.ScanLightsToConfig()
 		c.driver.SendEvent("config", c.driver.config)
-
-		// TODO: Find a way to restart driver here
-		//		 maybe like this (from samsung-tv)?
-		// no, this just exits - doesn't restart
-		//		go func() {
-		//			time.Sleep(time.Second * 2)
-		//			os.Exit(0)
-		//		}()
 
 		return c.list()
 
@@ -191,6 +199,9 @@ func (c *configService) rename() (*suit.ConfigurationScreen, error) {
 			Value:       c.driver.config.Names[lightID],
 		})
 	}
+	choices := []suit.ActionListOption{}
+	choices = append(choices, suit.ActionListOption{Title: "Reset Lights", Value: "reset"})
+	choices = append(choices, suit.ActionListOption{Title: "Scan for New Lights", Value: "scanNew"})
 
 	screen := suit.ConfigurationScreen{
 		Title: "Yeelight - Rename/Reset Lights",
@@ -215,9 +226,14 @@ func (c *configService) rename() (*suit.ConfigurationScreen, error) {
 			suit.Section{
 				Contents: []suit.Typed{
 					suit.StaticText{
-						Title:    "Reset - ",
-						Subtitle: "Clear all bulbs and (optionally) presets", // might separate these some day
-						Value:    "Reset the lights (and restart the driver) if you add new bulbs.",
+						Value:    "Reset clears all bulbs and (optionally) presets, then scans for current lights",
+					},
+					suit.ActionList{
+						Name:    "choice",
+						Options: choices,
+						PrimaryAction: &suit.ReplyAction{
+							Name: "resetAction",
+						},
 					},
 				},
 			},
@@ -228,12 +244,12 @@ func (c *configService) rename() (*suit.ConfigurationScreen, error) {
 				Label: "Cancel",
 				Name:  "list",
 			},
-			suit.ReplyAction{
-				Label:        "Reset",
-				Name:         "reset",
-				DisplayClass: "warning",
-				DisplayIcon:  "warning",
-			},
+			//			suit.ReplyAction{
+			//				Label:        "Reset",
+			//				Name:         "reset",
+			//				DisplayClass: "warning",
+			//				DisplayIcon:  "warning",
+			//			},
 			suit.ReplyAction{
 				Label:        "Save",
 				Name:         "saveRename",
@@ -302,7 +318,7 @@ func (c *configService) presets() (*suit.ConfigurationScreen, error) {
 	presets := []suit.ActionListOption{}
 
 	// create action option for each preset
-//	for name, _ := range c.driver.config.Presets {
+	//	for name, _ := range c.driver.config.Presets {
 	for _, name := range c.driver.config.PresetNames {
 		//		title := name
 		presets = append(presets, suit.ActionListOption{
@@ -353,11 +369,10 @@ func (c *configService) presets() (*suit.ConfigurationScreen, error) {
 
 // list displays the main screen with lights to control and links to other actions
 func (c *configService) list() (*suit.ConfigurationScreen, error) {
-	lightActions := []suit.ActionListOption{}
-
 	// create action option for each light
+	lightActions := []suit.ActionListOption{}
 	for _, lightID := range c.driver.config.LightIDs {
-		title := c.driver.config.Names[lightID] + " (" + lightID + ") On"
+		title := "(" + lightID + ") " + c.driver.config.Names[lightID]
 		if isOn, _ := c.driver.devices[lightID].IsOn(); isOn {
 			title += " *"
 		}
@@ -366,6 +381,12 @@ func (c *configService) list() (*suit.ConfigurationScreen, error) {
 			Value: lightID,
 		})
 	}
+
+	//	menuActions := []suit.ActionListOption{}
+	//	menuActions = append(menuActions, suit.ActionListOption{
+	//		Title: "Turn All Lights Off",
+	//		Value: "allOff",
+	//	})
 
 	screen := suit.ConfigurationScreen{
 		Title: "Yeelight Sunflower - Main",
@@ -393,11 +414,18 @@ func (c *configService) list() (*suit.ConfigurationScreen, error) {
 					},
 				},
 			},
-			//			suit.Section{
-			//				Contents: []suit.Typed{
-			//
-			//				},
-			//			},
+			suit.Section{
+				Contents: []suit.Typed{
+					suit.ActionList{
+						Name:    "allOff",
+						Options: []suit.ActionListOption{suit.ActionListOption{Title: "Turn All Lights Off"}},
+						PrimaryAction: &suit.ReplyAction{
+							Name:        "allOff",
+							DisplayIcon: "toggle-off",
+						},
+					},
+				},
+			},
 		},
 		Actions: []suit.Typed{
 			suit.CloseAction{
@@ -415,12 +443,12 @@ func (c *configService) list() (*suit.ConfigurationScreen, error) {
 				DisplayClass: "info",
 				DisplayIcon:  "list-ul",
 			},
-			suit.ReplyAction{
-				Label:        "All Off",
-				Name:         "allOff",
-				DisplayClass: "danger",
-				DisplayIcon:  "toggle-off",
-			},
+			//			suit.ReplyAction{
+			//				Label:        "All Off",
+			//				Name:         "allOff",
+			//				DisplayClass: "danger",
+			//				DisplayIcon:  "toggle-off",
+			//			},
 		},
 	}
 	return &screen, nil
@@ -450,7 +478,7 @@ func (c *configService) error(message string) (*suit.ConfigurationScreen, error)
 }
 
 func (c *configService) confirmReset() (*suit.ConfigurationScreen, error) {
-	options := []suit.OptionGroupOption{suit.OptionGroupOption{Title: "Keep presets?", Value: "keepPresets"}}
+	options := []suit.OptionGroupOption{suit.OptionGroupOption{Title: "Keep presets?", Value: "keepPresets", Selected: true}}
 	return &suit.ConfigurationScreen{
 		Sections: []suit.Section{
 			suit.Section{
@@ -462,7 +490,7 @@ func (c *configService) confirmReset() (*suit.ConfigurationScreen, error) {
 						DisplayIcon:  "warning",
 					},
 					suit.OptionGroup{
-						Name: "options",
+						Name:    "options",
 						Options: options,
 					},
 				},
@@ -513,3 +541,9 @@ func (c *configService) confirmDeletePreset() (*suit.ConfigurationScreen, error)
 		},
 	}, nil
 }
+
+//			suit.Section{
+//				Contents: []suit.Typed{
+//
+//				},
+//			},
