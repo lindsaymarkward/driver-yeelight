@@ -13,12 +13,11 @@ import (
 
 type YeelightDevice struct {
 	*devices.LightDevice
-	IP        string // driver config has this, but can't access it easily from light
 	sendEvent func(event string, payload interface{}) error
 }
 
 // NewYeelightDevice creates a light device, given a driver and an id (hex code used by Yeelight hub)
-func NewYeelightDevice(d *YeelightDriver, id string, ip string) *YeelightDevice {
+func NewYeelightDevice(d *YeelightDriver, id string) *YeelightDevice {
 
 	name := d.config.Names[id]
 	infoModel := &model.Device{
@@ -52,7 +51,7 @@ func NewYeelightDevice(d *YeelightDriver, id string, ip string) *YeelightDevice 
 		// for some reason, nothing prints in here...
 		log.Printf("Applying Light State: %v\n", *state)
 		if state.OnOff != nil {
-			err = yeelight.SetOnOff(lightDevice.GetDeviceInfo().NaturalID, *state.OnOff, ip)
+			err = yeelight.SetOnOff(lightDevice.GetDeviceInfo().NaturalID, *state.OnOff, d.config.IP)
 			// send brightness to match on/off state
 			var brightness float64
 			if *state.OnOff {
@@ -64,7 +63,7 @@ func NewYeelightDevice(d *YeelightDriver, id string, ip string) *YeelightDevice 
 		}
 		if state.Brightness != nil {
 			// state.Brightness is a float value between 0-1
-			err = yeelight.SetBrightness(lightDevice.GetDeviceInfo().NaturalID, *state.Brightness, ip)
+			err = yeelight.SetBrightness(lightDevice.GetDeviceInfo().NaturalID, *state.Brightness, d.config.IP)
 			// send on/off state to match brightness with minimum brightness before going off
 			onOff := true
 			if *state.Brightness < 0.08 {
@@ -76,7 +75,7 @@ func NewYeelightDevice(d *YeelightDriver, id string, ip string) *YeelightDevice 
 		}
 		if state.Color != nil {
 			r, g, b := yeelight.HSVToRGB(*state.Color.Hue, *state.Color.Saturation, 1)
-			err = yeelight.SetColor(lightDevice.GetDeviceInfo().NaturalID, r, g, b, ip)
+			err = yeelight.SetColor(lightDevice.GetDeviceInfo().NaturalID, r, g, b, d.config.IP)
 		}
 		// update the state for the UI
 		lightDevice.UpdateLightState(state)
@@ -85,7 +84,7 @@ func NewYeelightDevice(d *YeelightDriver, id string, ip string) *YeelightDevice 
 
 	// to determine if a light is on
 	lightDevice.ApplyIsOn = func() (bool, error) {
-		isOn, err := yeelight.IsOn(lightDevice.GetDeviceInfo().NaturalID, ip)
+		isOn, err := yeelight.IsOn(lightDevice.GetDeviceInfo().NaturalID, d.config.IP)
 		return isOn, err
 	}
 
@@ -101,5 +100,5 @@ func NewYeelightDevice(d *YeelightDriver, id string, ip string) *YeelightDevice 
 		log.Printf("Could not enable color channel. %v", err)
 	}
 
-	return &YeelightDevice{LightDevice: lightDevice, IP: ip}
+	return &YeelightDevice{LightDevice: lightDevice}
 }

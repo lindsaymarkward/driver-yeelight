@@ -1,7 +1,7 @@
 package main
 
+// Configuration for the UI (i.e. what appears in Labs)
 // initially copied from driver-samsung-tv
-// This file contains most of the code for the UI (i.e. what appears in the Labs)
 
 import (
 	"encoding/json"
@@ -10,7 +10,6 @@ import (
 	"strings"
 
 	"github.com/lindsaymarkward/go-ninja/devices"
-	"github.com/lindsaymarkward/go-yeelight"
 	"github.com/ninjasphere/go-ninja/model"
 	"github.com/ninjasphere/go-ninja/suit"
 )
@@ -27,6 +26,7 @@ type savePresetData struct {
 	LightIDs []string `json:lightIDs`
 }
 
+// GetActions is called by the Ninja Sphere system and returns the actions that this driver performs
 func (c *configService) GetActions(request *model.ConfigurationRequest) (*[]suit.ReplyAction, error) {
 	return &[]suit.ReplyAction{
 		suit.ReplyAction{
@@ -37,12 +37,12 @@ func (c *configService) GetActions(request *model.ConfigurationRequest) (*[]suit
 	}, nil
 }
 
+// Configure is the main function that is called for every action
 func (c *configService) Configure(request *model.ConfigurationRequest) (*suit.ConfigurationScreen, error) {
 	log.Printf("Incoming configuration request. Action:%s Data:%s", request.Action, string(request.Data))
 	switch request.Action {
 	case "": // the case when coming from "main menu"
 		return c.list()
-
 	case "list":
 		return c.list()
 
@@ -54,7 +54,7 @@ func (c *configService) Configure(request *model.ConfigurationRequest) (*suit.Co
 			return c.error(fmt.Sprintf("Failed to unmarshal save config request %s: %s", request.Data, err))
 		}
 
-		// save all/only new names to names map
+		// save all/only new names to names map. values that start with "id" are the light name fields
 		names := make(map[string]string)
 		for id, newName := range values {
 			if strings.HasPrefix(id, "id") {
@@ -95,7 +95,7 @@ func (c *configService) Configure(request *model.ConfigurationRequest) (*suit.Co
 			return c.error(fmt.Sprintf("Failed to unmarshal save config request %s: %s", request.Data, err))
 		}
 		c.driver.ActivatePreset(values["name"])
-		return c.presets() // maybe want to return to list
+		return c.presets()
 
 	case "deletePreset":
 		var values map[string]string
@@ -103,10 +103,9 @@ func (c *configService) Configure(request *model.ConfigurationRequest) (*suit.Co
 		if err != nil {
 			return c.error(fmt.Sprintf("Failed to unmarshal save config request %s: %s", request.Data, err))
 		}
+		// set global variable then go to confirmation screen
 		presetToDelete = values["name"]
 		return c.confirmDeletePreset()
-		//		c.driver.DeletePreset(values["name"])
-		//		return c.presets()
 
 	case "rename":
 		return c.rename()
@@ -131,11 +130,12 @@ func (c *configService) Configure(request *model.ConfigurationRequest) (*suit.Co
 		return c.list()
 
 	case "allOff":
-		yeelight.TurnOffAllLights(c.driver.config.IP)
-		// update state of all lights for UI
-		onOff := false
-		for _, device := range c.driver.devices {
-			device.UpdateLightState(&devices.LightDeviceState{OnOff: &onOff})
+		// turn off all lights and if no error, update state of all lights for UI
+		if c.driver.TurnOffAllLights() == nil {
+			onOff := false
+			for _, device := range c.driver.devices {
+				device.UpdateLightState(&devices.LightDeviceState{OnOff: &onOff})
+			}
 		}
 		return c.list()
 
@@ -146,15 +146,27 @@ func (c *configService) Configure(request *model.ConfigurationRequest) (*suit.Co
 			return c.error(fmt.Sprintf("Failed to unmarshal save config request %s: %s", request.Data, err))
 		}
 
+		// handle the ActionList choice - reset or scan/update
 		switch values["choice"] {
 		case "reset":
 			return c.confirmReset()
 		case "scanNew":
-			c.driver.ScanLightsToConfig()
-			c.driver.SendEvent("config", c.driver.config)
-			return c.list()
+			if err := c.driver.ScanLightsToConfig(); err == nil {
+				c.driver.SendEvent("config", c.driver.config)
+				return c.list()
+			} else {
+				return c.error(fmt.Sprintf("%v", err))
+			}
 		default:
 			return c.error(fmt.Sprintf("Unknown option %v\n", values["choice"]))
+		}
+
+	case "refresh":
+		if err := c.driver.ScanLightsToConfig(); err == nil {
+			c.driver.SendEvent("config", c.driver.config)
+			return c.list()
+		} else {
+			return c.error(fmt.Sprintf("%v", err))
 		}
 
 	case "confirmReset":
@@ -167,16 +179,18 @@ func (c *configService) Configure(request *model.ConfigurationRequest) (*suit.Co
 		presets := c.driver.config.Presets
 
 		c.driver.config = DefaultConfig()
-		c.driver.config.Initialised = false
 
 		if containsString(values["options"], "keepPresets") {
 			c.driver.config.PresetNames = presetNames
 			c.driver.config.Presets = presets
 		}
-		c.driver.ScanLightsToConfig()
-		c.driver.SendEvent("config", c.driver.config)
-
-		return c.list()
+		// scan for new lights
+		if err := c.driver.ScanLightsToConfig(); err == nil {
+			c.driver.SendEvent("config", c.driver.config)
+			return c.list()
+		} else {
+			return c.error(fmt.Sprintf("%v", err))
+		}
 
 	case "confirmDeletePreset":
 		c.driver.DeletePreset(presetToDelete)
@@ -187,6 +201,7 @@ func (c *configService) Configure(request *model.ConfigurationRequest) (*suit.Co
 	}
 }
 
+// rename is a config screen containing text entry fields for each light name, plus buttons to reset or scan
 func (c *configService) rename() (*suit.ConfigurationScreen, error) {
 	lightInputs := []suit.Typed{}
 	// create text field for each light
@@ -211,22 +226,13 @@ func (c *configService) rename() (*suit.ConfigurationScreen, error) {
 				Subtitle: "Set nice names that make you happy",
 				Contents: lightInputs,
 			},
-			// IP address setting - might want... not now
-			//			suit.Section{
-			//				Title: "Set IP",
-			//				Contents: []suit.Typed{
-			//					suit.InputText{
-			//						Name:        "setIP",
-			//						Before:      "Current IP",
-			//						Placeholder: "IP address",
-			//						Value:       c.driver.config.Hub.IP,
-			//					},
-			//				},
-			//			},
 			suit.Section{
 				Contents: []suit.Typed{
 					suit.StaticText{
-						Value:    "Reset clears all bulbs and (optionally) presets, then scans for current lights",
+						Value: "Reset clears all bulbs and (optionally) presets, then scans for current lights",
+					},
+					suit.StaticText{
+						Value: "Driver version: " + c.driver.DriverSupport.Info.Version,
 					},
 					suit.ActionList{
 						Name:    "choice",
@@ -238,18 +244,11 @@ func (c *configService) rename() (*suit.ConfigurationScreen, error) {
 				},
 			},
 		},
-
 		Actions: []suit.Typed{
 			suit.ReplyAction{
 				Label: "Cancel",
 				Name:  "list",
 			},
-			//			suit.ReplyAction{
-			//				Label:        "Reset",
-			//				Name:         "reset",
-			//				DisplayClass: "warning",
-			//				DisplayIcon:  "warning",
-			//			},
 			suit.ReplyAction{
 				Label:        "Save",
 				Name:         "saveRename",
@@ -261,14 +260,13 @@ func (c *configService) rename() (*suit.ConfigurationScreen, error) {
 	return &screen, nil
 }
 
+// newPreset is a config screen for creating new presets/scenes, including selecting which lights to include
 func (c *configService) newPreset() (*suit.ConfigurationScreen, error) {
-	//	var lights []suit.RadioGroupOption
-
 	lights := []suit.OptionGroupOption{suit.OptionGroupOption{Title: "All lights", Value: "all"}}
-	// create text field for each light
+	// create option check box for each light
 	for _, lightID := range c.driver.config.LightIDs {
 		selected := false
-		// Note: this is inefficient as each call to IsOn gets all lights (but not very slow)
+		// Note: this is inefficient as each call to IsOn gets all lights (but it's actually not very slow)
 		if isOn, _ := c.driver.devices[lightID].IsOn(); isOn {
 			selected = true
 		}
@@ -282,7 +280,7 @@ func (c *configService) newPreset() (*suit.ConfigurationScreen, error) {
 		Title: "Yeelight - Create New Preset",
 		Sections: []suit.Section{
 			suit.Section{
-				Title:    "Define Settings",
+				Title:    "Choose Settings",
 				Subtitle: "With your lights as you want the scene, select which lights to include below, and click Save. (Lights that are currently on are pre-selected.) Including lights that are currently off will turn them off when the preset is activated.",
 				Contents: []suit.Typed{
 					suit.InputText{
@@ -314,13 +312,13 @@ func (c *configService) newPreset() (*suit.ConfigurationScreen, error) {
 	return &screen, nil
 }
 
+// presets is a config screen that displays current presets and allows you to activate them,
+// plus a button to create a new preset
 func (c *configService) presets() (*suit.ConfigurationScreen, error) {
 	presets := []suit.ActionListOption{}
 
 	// create action option for each preset
-	//	for name, _ := range c.driver.config.Presets {
 	for _, name := range c.driver.config.PresetNames {
-		//		title := name
 		presets = append(presets, suit.ActionListOption{
 			Title: name,
 			Value: name,
@@ -331,7 +329,7 @@ func (c *configService) presets() (*suit.ConfigurationScreen, error) {
 		Sections: []suit.Section{
 			suit.Section{
 				Title:    "Current Presets",
-				Subtitle: "Click to activate. To edit an existing preset, create a new one with the same name.",
+				Subtitle: "Click to activate scene. To change an existing preset, create a new one with the same name.",
 				Contents: []suit.Typed{
 					suit.ActionList{
 						Name:    "name", // the field name for which preset was clicked
@@ -367,93 +365,115 @@ func (c *configService) presets() (*suit.ConfigurationScreen, error) {
 	return &screen, nil
 }
 
-// list displays the main screen with lights to control and links to other actions
+// list displays the main screen with lights to control, plus buttons for other main actions
 func (c *configService) list() (*suit.ConfigurationScreen, error) {
-	// create action option for each light
-	lightActions := []suit.ActionListOption{}
-	for _, lightID := range c.driver.config.LightIDs {
-		title := "(" + lightID + ") " + c.driver.config.Names[lightID]
-		if isOn, _ := c.driver.devices[lightID].IsOn(); isOn {
-			title += " *"
+	var screen suit.ConfigurationScreen
+	err := c.driver.CheckHub()
+	if err != nil {
+		// if hub is not responding, produce custom error screen with option to refresh/rescan
+		log.Printf("Error: %v\n", err)
+		screen = suit.ConfigurationScreen{
+			Title: "Yeelight Sunflower - Error",
+			Sections: []suit.Section{
+				suit.Section{
+					Title: "Hub is not responding. Check that the Yeelight hub is connected and switched on, then click Refresh below.",
+					Contents: []suit.Typed{
+						suit.StaticText{
+							Value: "Driver version: " + c.driver.DriverSupport.Info.Version,
+						},
+					},
+				},
+			},
+			Actions: []suit.Typed{
+				suit.CloseAction{
+					Label: "Close",
+				},
+				suit.ReplyAction{
+					Label:        "Refresh (Scan for hub & bulbs)",
+					Name:         "refresh",
+					DisplayIcon:  "refresh",
+					DisplayClass: "warning",
+				},
+			},
 		}
-		lightActions = append(lightActions, suit.ActionListOption{
-			Title: title,
-			Value: lightID,
-		})
-	}
+	} else {
+		// hub is alive so make normal list
+		var lightActions []suit.ActionListOption
 
-	//	menuActions := []suit.ActionListOption{}
-	//	menuActions = append(menuActions, suit.ActionListOption{
-	//		Title: "Turn All Lights Off",
-	//		Value: "allOff",
-	//	})
+		// create action option for each light
+		for _, lightID := range c.driver.config.LightIDs {
+			title := "(" + lightID + ") " + c.driver.config.Names[lightID]
+			if isOn, _ := c.driver.devices[lightID].IsOn(); isOn {
+				title += " *"
+			}
+			lightActions = append(lightActions, suit.ActionListOption{
+				Title: title,
+				Value: lightID,
+			})
+		}
 
-	screen := suit.ConfigurationScreen{
-		Title: "Yeelight Sunflower - Main",
-		Sections: []suit.Section{
-			// On/Off buttons for controlling or finding which lights are which
-			suit.Section{
-				Title:    "Switch Lights",
-				Subtitle: "* indicates light is currently on",
-				Contents: []suit.Typed{
-					suit.ActionList{
-						Name:    "lightID", // the field name for which light was clicked
-						Options: lightActions,
-						PrimaryAction: &suit.ReplyAction{
-							Name:         "on",
-							Label:        "On",
-							DisplayIcon:  "toggle-on",
-							DisplayClass: "success", // this doesn't change the default - can't change, it seems
+		screen = suit.ConfigurationScreen{
+			Title: "Yeelight Sunflower - Main",
+			Sections: []suit.Section{
+				// On/Off buttons for controlling all lights
+				suit.Section{
+					Title:    "Switch Lights",
+					Subtitle: "* indicates light is currently on",
+					Contents: []suit.Typed{
+						suit.ActionList{
+							Name:    "lightID", // the field name for which light was clicked
+							Options: lightActions,
+							PrimaryAction: &suit.ReplyAction{
+								Name:         "on",
+								Label:        "On",
+								DisplayIcon:  "toggle-on",
+								DisplayClass: "success", // this doesn't change the default - can't change, it seems
+							},
+							SecondaryAction: &suit.ReplyAction{
+								Name:         "off",
+								Label:        "Off",
+								DisplayIcon:  "toggle-off",
+								DisplayClass: "danger",
+							},
 						},
-						SecondaryAction: &suit.ReplyAction{
-							Name:         "off",
-							Label:        "Off",
-							DisplayIcon:  "toggle-off",
-							DisplayClass: "danger",
+					},
+				},
+				// extra button for turning off all lights
+				suit.Section{
+					Contents: []suit.Typed{
+						suit.ActionList{
+							Name:    "allOff",
+							Options: []suit.ActionListOption{suit.ActionListOption{Title: "Turn All Lights Off"}},
+							PrimaryAction: &suit.ReplyAction{
+								Name:        "allOff",
+								DisplayIcon: "toggle-off",
+							},
 						},
 					},
 				},
 			},
-			suit.Section{
-				Contents: []suit.Typed{
-					suit.ActionList{
-						Name:    "allOff",
-						Options: []suit.ActionListOption{suit.ActionListOption{Title: "Turn All Lights Off"}},
-						PrimaryAction: &suit.ReplyAction{
-							Name:        "allOff",
-							DisplayIcon: "toggle-off",
-						},
-					},
+			Actions: []suit.Typed{
+				suit.CloseAction{
+					Label: "Close",
+				},
+				suit.ReplyAction{
+					Label: "Rename/Reset",
+					Name:  "rename",
+					DisplayIcon: "pencil",
+				},
+				suit.ReplyAction{
+					Label:        "Presets",
+					Name:         "presets",
+					DisplayClass: "info",
+					DisplayIcon:  "list-ul",
 				},
 			},
-		},
-		Actions: []suit.Typed{
-			suit.CloseAction{
-				Label: "Close",
-			},
-			suit.ReplyAction{
-				Label: "Rename/Reset",
-				Name:  "rename",
-				//				DisplayClass: "warning",
-				DisplayIcon: "pencil",
-			},
-			suit.ReplyAction{
-				Label:        "Presets",
-				Name:         "presets",
-				DisplayClass: "info",
-				DisplayIcon:  "list-ul",
-			},
-			//			suit.ReplyAction{
-			//				Label:        "All Off",
-			//				Name:         "allOff",
-			//				DisplayClass: "danger",
-			//				DisplayIcon:  "toggle-off",
-			//			},
-		},
+		}
 	}
 	return &screen, nil
 }
 
+// error is a generic error message screen
 func (c *configService) error(message string) (*suit.ConfigurationScreen, error) {
 
 	return &suit.ConfigurationScreen{
@@ -464,6 +484,9 @@ func (c *configService) error(message string) (*suit.ConfigurationScreen, error)
 						Title:        "Error",
 						Subtitle:     message,
 						DisplayClass: "danger",
+					},
+					suit.StaticText{
+						Value: "Driver version: " + c.driver.DriverSupport.Info.Version,
 					},
 				},
 			},
@@ -477,6 +500,7 @@ func (c *configService) error(message string) (*suit.ConfigurationScreen, error)
 	}, nil
 }
 
+// confirmReset is a config screen for confirming/cancelling reset of driver configuration
 func (c *configService) confirmReset() (*suit.ConfigurationScreen, error) {
 	options := []suit.OptionGroupOption{suit.OptionGroupOption{Title: "Keep presets?", Value: "keepPresets", Selected: true}}
 	return &suit.ConfigurationScreen{
@@ -512,6 +536,7 @@ func (c *configService) confirmReset() (*suit.ConfigurationScreen, error) {
 	}, nil
 }
 
+// confirmDeletePreset is a config screen to confirm/cancel deleting a preset
 func (c *configService) confirmDeletePreset() (*suit.ConfigurationScreen, error) {
 	return &suit.ConfigurationScreen{
 		Sections: []suit.Section{
@@ -541,9 +566,3 @@ func (c *configService) confirmDeletePreset() (*suit.ConfigurationScreen, error)
 		},
 	}, nil
 }
-
-//			suit.Section{
-//				Contents: []suit.Typed{
-//
-//				},
-//			},

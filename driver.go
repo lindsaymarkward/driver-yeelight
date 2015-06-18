@@ -31,15 +31,15 @@ type YeelightDriverConfig struct {
 
 type Preset struct {
 	//	Name   string	// name is the key in the map of Presets
-	Lights []yeelight.Light	// TODO: consider storing only what we need, not everything (LQI, Effect...)
+	Lights []yeelight.Light // TODO: consider storing only what we need, not everything (LQI, Effect...)
 }
 
-// defaultConfig sets a default configuration for the YeelightDriverConfig with no lights
+// DefaultConfig sets a default configuration for the YeelightDriverConfig with no lights
 func DefaultConfig() *YeelightDriverConfig {
 	return &YeelightDriverConfig{
-		Initialised: true, // ?? consider making this false - what's the point of this otherwise?
-		LightIDs:    make([]string, 0),
+		Initialised: false,
 		IP:          "",
+		LightIDs:    make([]string, 0),
 		Names:       make(map[string]string),
 		Presets:     make(map[string]*Preset),
 	}
@@ -64,13 +64,10 @@ func NewYeelightDriver() (*YeelightDriver, error) {
 		log.Fatalf("Failed to export Yeelight driver: %s", err)
 	}
 
-	//	userAgent := driver.Conn.GetServiceClient("$device/:deviceId/channel/user-agent")
-	//	userAgent.OnEvent("pairing-requested", driver.OnPairingRequest)
-
 	return driver, nil
 }
 
-// Start runs when the driver is started - called by the Ninja system (not the driver itself)
+// Start runs when the driver is started - called by the Ninja system (not the driver itself),
 // gets the hub and light details, sets the configuration
 func (d *YeelightDriver) Start(config *YeelightDriverConfig) error {
 	log.Printf("Yeelight Driver Starting with config %v", config)
@@ -87,19 +84,22 @@ func (d *YeelightDriver) Start(config *YeelightDriverConfig) error {
 			d.config.PresetNames = presetNames
 		}
 
-		d.ScanLightsToConfig()
+		// find hub and lights, save to config
+		// if it worked, the driver is initialised
+		if err := d.ScanLightsToConfig(); err != nil {
+			d.config.Initialised = true
+		}
 	}
-	log.Printf("\nLightIDs: %v\nNames: %v\n\n", d.config.LightIDs, d.config.Names)
+	log.Printf("\nLightIDs: %v\nNames: %v\n", d.config.LightIDs, d.config.Names)
 
-	// create device for each light and add it to devices map in driver
-	for id, _ := range d.config.Names {
-		log.Printf("Creating new Yeelight, %v", id)
-		device := NewYeelightDevice(d, id, d.config.IP)
-		d.devices[id] = device
-		//		fmt.Printf("\nDevice %v has deviceID %v\n", *device.GetDeviceInfo().Name, device.GetDeviceInfo().ID)
-	}
+	// create devices from the lights stored in the config
+	// this creates devices even if the hub is not online so they can be used when it does come online
+	d.CreateDevicesFromConfig()
+
 	// TODO: trying to set ThingIDs so we can set Thing.Name
 	// can get access to it but setting it doesn't do anything
+	// I think I need a sendEvent like for config
+
 	//	thingClient := d.Conn.GetServiceClient("$home/services/ThingModel")
 	//	things := make([]*model.Thing, 0)
 	//	keptThings := make([]*model.Thing, 0, len(things))
@@ -119,7 +119,7 @@ func (d *YeelightDriver) Start(config *YeelightDriverConfig) error {
 	//		}
 	//	}
 
-	// Provide configuration page (labs)
+	// Provide configuration (Labs) service
 	d.Conn.MustExportService(&configService{d}, "$driver/"+info.ID+"/configure", &model.ServiceAnnouncement{
 		Schema: "/protocol/configuration",
 	})
@@ -127,6 +127,7 @@ func (d *YeelightDriver) Start(config *YeelightDriverConfig) error {
 	return d.SendEvent("config", config)
 }
 
+// ScanLightsToConfig finds the Yeelight hub on the network, gets the lights and saves them to the config
 func (d *YeelightDriver) ScanLightsToConfig() error {
 	// search for hub and get IP address
 	ip, err := yeelight.DiscoverHub()
@@ -136,17 +137,16 @@ func (d *YeelightDriver) ScanLightsToConfig() error {
 		// found hub, get lights and set config details
 		log.Printf("Hub found at %s\n", ip)
 		lights, _ := yeelight.GetLights(ip)
-		// TODO: Consider how to remove a light. Resetting Yeelight hub manually, or maybe offer delete option
-//		log.Printf("\nLights: %v\n", lights)
+		// TODO: Consider how to remove a light. Maybe offer delete option to ignore these lights (which would still appear in the Yeelight iPhone app)
 		// Create entries in Names map (light IDs from lights slice as keys) and LightIDs slice
 		for _, light := range lights {
-			// set default name for new lights
+			// set default name for new lights, like "Yee238B"
 			if !containsString(d.config.LightIDs, light.ID) {
 				d.config.Names[light.ID] = "Yee" + light.ID
 				d.config.LightIDs = append(d.config.LightIDs, light.ID)
 			}
 		}
-		// save IP address to config
+		// save IP address to config and "initialise" driver
 		d.config.IP = ip
 		d.config.Initialised = true
 		log.Printf("Found these (%d) lights: %v at IP %v", len(lights), d.config.LightIDs, ip)
@@ -159,15 +159,23 @@ func (d *YeelightDriver) Stop() error {
 	return fmt.Errorf("This driver does not support being stopped. YOU HAVE NO POWER HERE.")
 }
 
+// CreateDevicesFromConfig creates a new device (exporting it) for each light in the config
+func (d *YeelightDriver) CreateDevicesFromConfig() error {
+	// create device for each light and add it to devices map in driver
+	for id, _ := range d.config.Names {
+		log.Printf("Creating new Yeelight, %v", id)
+		device := NewYeelightDevice(d, id)
+		d.devices[id] = device
+	}
+	return nil
+}
+
 // Rename takes a map of id->name and changes the display names for each light
 func (d *YeelightDriver) Rename(names map[string]string) error {
 	d.config.Names = names
 	// as well as the driver config, we also need to set the device names
 	for id, newName := range names {
-		//		fmt.Printf("\nid %v, name %v\n", id, newName)
 		d.devices[id].GetDeviceInfo().Name = &newName
-		//		d.devices[id].sendEvent("renamed", &newName)
-
 	}
 	// save the new configuration
 	return d.SendEvent("config", d.config)
@@ -230,6 +238,17 @@ func (d *YeelightDriver) ActivatePreset(name string) error {
 		err = yeelight.SetLight(light.ID, light.R, light.G, light.B, light.Level, d.config.IP)
 	}
 	return err
+}
+
+// CheckHub calls Heartbeat which pings the Yeelight hub to see if it's alive,
+// returns either nil error if it's responsive or error if the ack is not received from the hub.
+func (d *YeelightDriver) CheckHub() error {
+	return yeelight.Heartbeat(d.config.IP)
+}
+
+// TurnOffAllLights turns off all bulbs
+func (d *YeelightDriver) TurnOffAllLights() error {
+	return yeelight.TurnOffAllLights(d.config.IP)
 }
 
 func containsString(haystack []string, needle string) bool {
