@@ -133,24 +133,24 @@ func (d *YeelightDriver) ScanLightsToConfig() error {
 	ip, err := yeelight.DiscoverHub()
 	if err != nil {
 		log.Printf("ERROR discovering Yeelight hub: %v", err)
-	} else {
-		// found hub, get lights and set config details
-		log.Printf("Hub found at %s\n", ip)
-		lights, _ := yeelight.GetLights(ip)
-		// TODO: Consider how to remove a light. Maybe offer delete option to ignore these lights (which would still appear in the Yeelight iPhone app)
-		// Create entries in Names map (light IDs from lights slice as keys) and LightIDs slice
-		for _, light := range lights {
-			// set default name for new lights, like "Yee238B"
-			if !containsString(d.config.LightIDs, light.ID) {
-				d.config.Names[light.ID] = "Yee" + light.ID
-				d.config.LightIDs = append(d.config.LightIDs, light.ID)
-			}
-		}
-		// save IP address to config and "initialise" driver
-		d.config.IP = ip
-		d.config.Initialised = true
-		log.Printf("Found these (%d) lights: %v at IP %v", len(lights), d.config.LightIDs, ip)
+		return err
 	}
+	// found hub, get lights and set config details
+	log.Printf("Hub found at %s\n", ip)
+	lights, _ := yeelight.GetLights(ip)
+	// TODO: Consider how to remove a light. Maybe offer delete option to ignore these lights (which would still appear in the Yeelight iPhone app)
+	// Create entries in Names map (light IDs from lights slice as keys) and LightIDs slice
+	for _, light := range lights {
+		// set default name for new lights, like "Yee238B"
+		if !containsString(d.config.LightIDs, light.ID) {
+			d.config.Names[light.ID] = "Yee" + light.ID
+			d.config.LightIDs = append(d.config.LightIDs, light.ID)
+		}
+	}
+	// save IP address to config and "initialise" driver
+	d.config.IP = ip
+	d.config.Initialised = true
+	log.Printf("Found these (%d) lights: %v at IP %v", len(lights), d.config.LightIDs, ip)
 	return err
 }
 

@@ -6,6 +6,7 @@ import (
 	"os/signal"
 )
 
+// main creates the Yeelight driver and starts it in the Ninja Sphere way
 func main() {
 
 	NewYeelightDriver()

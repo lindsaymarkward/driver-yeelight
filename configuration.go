@@ -82,7 +82,6 @@ func (c *configService) Configure(request *model.ConfigurationRequest) (*suit.Co
 			return c.error(fmt.Sprintf("Failed to unmarshal save config request %s: %s", request.Data, err))
 		}
 		err = c.driver.SavePreset(values)
-
 		if err != nil {
 			return c.error(fmt.Sprintf("Could not save preset: %s", err))
 		}
@@ -151,23 +150,22 @@ func (c *configService) Configure(request *model.ConfigurationRequest) (*suit.Co
 		case "reset":
 			return c.confirmReset()
 		case "scanNew":
-			if err := c.driver.ScanLightsToConfig(); err == nil {
-				c.driver.SendEvent("config", c.driver.config)
-				return c.list()
-			} else {
+			if err := c.driver.ScanLightsToConfig(); err != nil {
 				return c.error(fmt.Sprintf("%v", err))
 			}
+			c.driver.SendEvent("config", c.driver.config)
+			return c.list()
+
 		default:
 			return c.error(fmt.Sprintf("Unknown option %v\n", values["choice"]))
 		}
 
 	case "refresh":
-		if err := c.driver.ScanLightsToConfig(); err == nil {
-			c.driver.SendEvent("config", c.driver.config)
-			return c.list()
-		} else {
+		if err := c.driver.ScanLightsToConfig(); err != nil {
 			return c.error(fmt.Sprintf("%v", err))
 		}
+		c.driver.SendEvent("config", c.driver.config)
+		return c.list()
 
 	case "confirmReset":
 		var values map[string][]string
@@ -185,12 +183,11 @@ func (c *configService) Configure(request *model.ConfigurationRequest) (*suit.Co
 			c.driver.config.Presets = presets
 		}
 		// scan for new lights
-		if err := c.driver.ScanLightsToConfig(); err == nil {
-			c.driver.SendEvent("config", c.driver.config)
-			return c.list()
-		} else {
+		if err := c.driver.ScanLightsToConfig(); err != nil {
 			return c.error(fmt.Sprintf("%v", err))
 		}
+		c.driver.SendEvent("config", c.driver.config)
+		return c.list()
 
 	case "confirmDeletePreset":
 		c.driver.DeletePreset(presetToDelete)
@@ -457,8 +454,8 @@ func (c *configService) list() (*suit.ConfigurationScreen, error) {
 					Label: "Close",
 				},
 				suit.ReplyAction{
-					Label: "Rename/Reset",
-					Name:  "rename",
+					Label:       "Rename/Reset",
+					Name:        "rename",
 					DisplayIcon: "pencil",
 				},
 				suit.ReplyAction{
