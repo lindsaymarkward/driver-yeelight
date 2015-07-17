@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/lindsaymarkward/go-ninja/devices"
+	"github.com/lindsaymarkward/go-yeelight"
 	"github.com/ninjasphere/go-ninja/model"
 	"github.com/ninjasphere/go-ninja/suit"
 )
@@ -154,6 +155,8 @@ func (c *configService) Configure(request *model.ConfigurationRequest) (*suit.Co
 				return c.error(fmt.Sprintf("%v", err))
 			}
 			c.driver.SendEvent("config", c.driver.config)
+			// TODO: (as in other places) This doesn't make new devices, just config entries... Somehow need to make new devices without re-making existing devices
+			//			c.driver.CreateDevicesFromConfig()
 			return c.list()
 
 		default:
@@ -165,6 +168,22 @@ func (c *configService) Configure(request *model.ConfigurationRequest) (*suit.Co
 			return c.error(fmt.Sprintf("%v", err))
 		}
 		c.driver.SendEvent("config", c.driver.config)
+		return c.list()
+
+	case "setip":
+		var values map[string]string
+		err := json.Unmarshal(request.Data, &values)
+		if err != nil {
+			return c.error(fmt.Sprintf("Failed to unmarshal save config request %s: %s", request.Data, err))
+		}
+		c.driver.config.IP = values["ip"]
+		// ?? set initialised to true?
+		c.driver.SendEvent("config", c.driver.config)
+		err = c.driver.ScanLightsToConfig()
+		if err != nil {
+			return c.error(fmt.Sprintf("%v", err))
+		}
+		c.driver.CreateDevicesFromConfig()
 		return c.list()
 
 	case "confirmReset":
@@ -259,12 +278,13 @@ func (c *configService) rename() (*suit.ConfigurationScreen, error) {
 
 // newPreset is a config screen for creating new presets/scenes, including selecting which lights to include
 func (c *configService) newPreset() (*suit.ConfigurationScreen, error) {
+	onLights := c.determineOnLights()
 	lights := []suit.OptionGroupOption{suit.OptionGroupOption{Title: "All lights", Value: "all"}}
 	// create option check box for each light
 	for _, lightID := range c.driver.config.LightIDs {
 		selected := false
-		// Note: this is inefficient as each call to IsOn gets all lights (but it's actually not very slow)
-		if isOn, _ := c.driver.devices[lightID].IsOn(); isOn {
+
+		if c.isLightOn(lightID, onLights) {
 			selected = true
 		}
 		lights = append(lights, suit.OptionGroupOption{
@@ -378,6 +398,14 @@ func (c *configService) list() (*suit.ConfigurationScreen, error) {
 						suit.StaticText{
 							Value: "Driver version: " + c.driver.DriverSupport.Info.Version,
 						},
+						suit.StaticText{
+							Value: "You could try setting the IP manually...",
+						},
+						suit.InputText{
+							Title: "IP address",
+							Name:  "ip",
+							Value: c.driver.config.IP,
+						},
 					},
 				},
 			},
@@ -391,21 +419,29 @@ func (c *configService) list() (*suit.ConfigurationScreen, error) {
 					DisplayIcon:  "refresh",
 					DisplayClass: "warning",
 				},
+				suit.ReplyAction{
+					Label:        "Set IP",
+					Name:         "setip",
+					DisplayIcon:  "wifi",
+					DisplayClass: "success",
+				},
 			},
 		}
 	} else {
 		// hub is alive so make normal list
 		var lightActions []suit.ActionListOption
+		onLights := c.determineOnLights()
 
 		// create action option for each light
 		for _, lightID := range c.driver.config.LightIDs {
-			title := "(" + lightID + ") " + c.driver.config.Names[lightID]
-			if isOn, _ := c.driver.devices[lightID].IsOn(); isOn {
+			title := c.driver.config.Names[lightID]
+			if c.isLightOn(lightID, onLights) {
 				title += " *"
 			}
 			lightActions = append(lightActions, suit.ActionListOption{
-				Title: title,
-				Value: lightID,
+				Title:    title,
+				Subtitle: lightID,
+				Value:    lightID,
 			})
 		}
 
@@ -421,10 +457,9 @@ func (c *configService) list() (*suit.ConfigurationScreen, error) {
 							Name:    "lightID", // the field name for which light was clicked
 							Options: lightActions,
 							PrimaryAction: &suit.ReplyAction{
-								Name:         "on",
-								Label:        "On",
-								DisplayIcon:  "toggle-on",
-								DisplayClass: "success", // this doesn't change the default - can't change, it seems
+								Name:        "on",
+								Label:       "On",
+								DisplayIcon: "toggle-on",
 							},
 							SecondaryAction: &suit.ReplyAction{
 								Name:         "off",
@@ -490,7 +525,7 @@ func (c *configService) error(message string) (*suit.ConfigurationScreen, error)
 		},
 		Actions: []suit.Typed{
 			suit.ReplyAction{
-				Label: "Cancel",
+				Label: "Back",
 				Name:  "list",
 			},
 		},
@@ -562,4 +597,26 @@ func (c *configService) confirmDeletePreset() (*suit.ConfigurationScreen, error)
 			},
 		},
 	}, nil
+}
+
+// determineOnLights gets current light values and returns a list of the IDs of lights that are on
+func (c *configService) determineOnLights() []string {
+	var lightData []yeelight.Light
+	var onLightIDs []string
+	// get light data
+	lightData, _ = yeelight.GetLights(c.driver.config.IP)
+	for _, light := range lightData {
+		if light.Level > 0 {
+			onLightIDs = append(onLightIDs, light.ID)
+		}
+	}
+	return onLightIDs
+}
+
+// isLightOn returns true if lightID is in list of lights that are on (passed in)
+func (c *configService) isLightOn(lightID string, lights []string) bool {
+	if containsString(lights, lightID) {
+		return true
+	}
+	return false
 }

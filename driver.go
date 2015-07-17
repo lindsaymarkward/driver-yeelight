@@ -2,6 +2,8 @@ package main
 
 // Ninja Sphere driver for Yeelight Sunflower light bulbs
 
+// TODO: Consider how to remove a light. Maybe offer delete option to ignore these lights (which would still appear in the Yeelight iPhone app)
+
 import (
 	"fmt"
 	"log"
@@ -99,6 +101,7 @@ func (d *YeelightDriver) Start(config *YeelightDriverConfig) error {
 	// TODO: trying to set ThingIDs so we can set Thing.Name
 	// can get access to it but setting it doesn't do anything
 	// I think I need a sendEvent like for config
+	// but there isn't one for saving yet! Wait for Ninjas
 
 	//	thingClient := d.Conn.GetServiceClient("$home/services/ThingModel")
 	//	things := make([]*model.Thing, 0)
@@ -132,13 +135,22 @@ func (d *YeelightDriver) ScanLightsToConfig() error {
 	// search for hub and get IP address
 	ip, err := yeelight.DiscoverHub()
 	if err != nil {
-		log.Printf("ERROR discovering Yeelight hub: %v", err)
-		return err
+		log.Printf("ERROR discovering Yeelight hub with SSDP: %v", err)
+		if d.config.IP == "" {
+			return err
+		} else {
+			ip = d.config.IP
+			log.Printf("Trying to get lights with config IP %v\n", ip)
+		}
+	} else {
+		// found hub with SSDP
+		log.Printf("Hub discovered with SSDP at %s\n", ip)
 	}
-	// found hub, get lights and set config details
-	log.Printf("Hub found at %s\n", ip)
-	lights, _ := yeelight.GetLights(ip)
-	// TODO: Consider how to remove a light. Maybe offer delete option to ignore these lights (which would still appear in the Yeelight iPhone app)
+	// get lights and set config details
+	lights, err := yeelight.GetLights(ip)
+	if err != nil {
+		return fmt.Errorf("Unable to get lights - %v", err)
+	}
 	// Create entries in Names map (light IDs from lights slice as keys) and LightIDs slice
 	for _, light := range lights {
 		// set default name for new lights, like "Yee238B"

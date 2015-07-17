@@ -18,7 +18,6 @@ type YeelightDevice struct {
 
 // NewYeelightDevice creates a light device, given a driver and an id (hex code used by Yeelight hub)
 func NewYeelightDevice(d *YeelightDriver, id string) *YeelightDevice {
-
 	name := d.config.Names[id]
 	infoModel := &model.Device{
 		NaturalID:     fmt.Sprintf("%s", id),
